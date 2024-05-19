@@ -1,5 +1,3 @@
-use std::any::Any;
-
 use rusqlite::{params_from_iter, types::ValueRef, Connection, ToSql};
 use serde_json::{json, Map, Value};
 
@@ -150,7 +148,7 @@ fn main() {
             // rv.set(result.into());
             // rv.set(v8::Number::new(scope, 3 as f64).into());
 
-            let fake_rows = vec![1,2,3];
+            let fake_rows = vec![1, 2, 3];
             let arr = v8::Array::new(scope, fake_rows.len() as i32);
             for (index, &v) in fake_rows.iter().enumerate() {
                 let obj = v8::Object::new(scope);
@@ -175,6 +173,58 @@ fn main() {
         let query_key = v8::String::new(scope, "query").unwrap();
         global.set(scope, query_key.into(), query_fn.into());
 
+        fn console_log(
+            scope: &mut v8::HandleScope,
+            args: v8::FunctionCallbackArguments,
+            mut _rv: v8::ReturnValue,
+        ) {
+            let mut line: Vec<String> = Vec::with_capacity(args.length() as usize);
+            for i in 0..args.length() {
+                let s = args.get(i).to_rust_string_lossy(scope);
+                line.push(s);
+            }
+            println!("LOG: {}", line.join(" "));
+        }
+        fn console_error(
+            scope: &mut v8::HandleScope,
+            args: v8::FunctionCallbackArguments,
+            mut _rv: v8::ReturnValue,
+        ) {
+            let mut line: Vec<String> = Vec::with_capacity(args.length() as usize);
+            for i in 0..args.length() {
+                let s = args.get(i).to_rust_string_lossy(scope);
+                line.push(s);
+            }
+            println!("ERROR: {}", line.join(" "));
+        }
+
+        // Create the `console` object
+        let console = v8::Object::new(scope);
+
+        // Create a function template
+        let console_log_tmpl = v8::FunctionTemplate::new(scope, console_log);
+
+        // Convert the function template to a function
+        let console_log_fn = console_log_tmpl.get_function(scope).unwrap();
+
+        // Attach the `log` function to the `console` object
+        let log_key = v8::String::new(scope, "log").unwrap();
+        console.set(scope, log_key.into(), console_log_fn.into());
+        
+        // Create a function template
+        let console_error_tmpl = v8::FunctionTemplate::new(scope, console_error);
+
+        // Convert the function template to a function
+        let console_error_fn = console_error_tmpl.get_function(scope).unwrap();
+
+        // Attach the `log` function to the `console` object
+        let log_key = v8::String::new(scope, "error").unwrap();
+        console.set(scope, log_key.into(), console_error_fn.into());
+
+        // Add the `console` object to the global object
+        let console_key = v8::String::new(scope, "console").unwrap();
+        global.set(scope, console_key.into(), console.into());
+
         // Create a string containing the JavaScript source code for MyClass.
         let c_source = r#"
             class MyClass {
@@ -183,7 +233,9 @@ fn main() {
                 }
 
                 testQuery() {
-                    return query("SELECT * FROM data", [1, 2.1, 'test', true]);
+                    let a = query("SELECT * FROM data", [1, 2.1, 'test', true]);
+                    console.log("hey", a)
+                    console.error("hey", JSON.stringify(a), JSON.parse(JSON.stringify(a)))
                 }
             }
             this.MyClass = MyClass;"#;
@@ -260,7 +312,13 @@ fn main() {
                 } else if elem.is_array() {
                     println!("Array item {}: Array", i);
                 } else if elem.is_object() {
-                    println!("Array item {}: Object - {}", i, v8::json::stringify(scope, elem).unwrap().to_rust_string_lossy(scope));
+                    println!(
+                        "Array item {}: Object - {}",
+                        i,
+                        v8::json::stringify(scope, elem)
+                            .unwrap()
+                            .to_rust_string_lossy(scope)
+                    );
                 } else if elem.is_null_or_undefined() {
                     println!("Array item {}: Null or Undefined", i);
                 } else {
