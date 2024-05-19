@@ -1,3 +1,5 @@
+use std::any::Any;
+
 use rusqlite::{params_from_iter, types::ValueRef, Connection, ToSql};
 use serde_json::{json, Map, Value};
 
@@ -144,9 +146,22 @@ fn main() {
             println!("{}", serde_json::to_string_pretty(&json_array).unwrap());
 
             // Return a result back to JavaScript (for example, the length of params)
-            let result = v8::Number::new(scope, params.len() as f64);
-            rv.set(result.into());
+            // let result = v8::Number::new(scope, params.len() as f64);
+            // rv.set(result.into());
             // rv.set(v8::Number::new(scope, 3 as f64).into());
+
+            let fake_rows = vec![1,2,3];
+            let arr = v8::Array::new(scope, fake_rows.len() as i32);
+            for (index, &v) in fake_rows.iter().enumerate() {
+                let obj = v8::Object::new(scope);
+                let key = v8::String::new(scope, "val").unwrap();
+                let val = v8::Number::new(scope, v as f64);
+                let index = v8::Number::new(scope, index as f64);
+                obj.set(scope, key.into(), val.into());
+                arr.set(scope, index.into(), obj.into());
+            }
+
+            rv.set(arr.into())
         }
 
         // Create a function template
@@ -222,8 +237,40 @@ fn main() {
         let test_query_value = instance.get(scope, test_query_key.into()).unwrap();
         let test_query_fn = v8::Local::<v8::Function>::try_from(test_query_value).unwrap();
         let result = test_query_fn.call(scope, instance.into(), &[]).unwrap();
-        let result = result.to_number(scope).unwrap();
-        println!("Query result length = {}", result.value());
+        println!("Returned array: {:?}", result.is_array());
+
+        if result.is_array() {
+            let arr = v8::Local::<v8::Array>::try_from(result).unwrap();
+            for i in 0..arr.length() {
+                let key = v8::Number::new(scope, i as f64);
+                let elem = arr.get(scope, key.into()).unwrap();
+
+                if elem.is_string() {
+                    let str_val = elem.to_string(scope).unwrap().to_rust_string_lossy(scope);
+                    println!("Array item {}: String - `{}`", i, str_val);
+                } else if elem.is_int32() {
+                    let num_val = elem.to_int32(scope).unwrap().value();
+                    println!("Array item {}: Int - `{}`", i, num_val);
+                } else if elem.is_number() {
+                    let num_val = elem.to_number(scope).unwrap().value();
+                    println!("Array item {}: Float - `{}`", i, num_val);
+                } else if elem.is_boolean() {
+                    let bool_val = elem.to_boolean(scope).is_true();
+                    println!("Array item {}: Boolean - `{}`", i, bool_val);
+                } else if elem.is_array() {
+                    println!("Array item {}: Array", i);
+                } else if elem.is_object() {
+                    println!("Array item {}: Object - {}", i, v8::json::stringify(scope, elem).unwrap().to_rust_string_lossy(scope));
+                } else if elem.is_null_or_undefined() {
+                    println!("Array item {}: Null or Undefined", i);
+                } else {
+                    println!("Array item {}: Unknown type", i);
+                }
+            }
+        }
+
+        // let result = result.to_number(scope).unwrap();
+        // println!("Query result length = {}", result.value());
     }
 
     // Explicit disposal of V8 platform is not necessary.
