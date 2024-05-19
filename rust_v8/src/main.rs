@@ -1,5 +1,5 @@
-use rusqlite::{params, params_from_iter, types::ValueRef, Connection, ParamsFromIter, ToSql};
-use serde_json::{Map, Value};
+use rusqlite::{params_from_iter, types::ValueRef, Connection, ToSql};
+use serde_json::{json, Map, Value};
 
 fn main() {
     // Initialize V8.
@@ -66,7 +66,7 @@ fn main() {
                 }
             }
 
-            let mut params: Vec<Box<dyn ToSql>> = vec![];
+            let mut params: Vec<rusqlite::types::Value> = vec![];
 
             for i in 0..query_params.length() {
                 let elem = query_params.get_index(scope, i).unwrap();
@@ -74,18 +74,18 @@ fn main() {
                 // Convert V8 values to rust-sqlite compatible types
                 if elem.is_string() {
                     let str_val = elem.to_string(scope).unwrap().to_rust_string_lossy(scope);
-                    params.push(Box::new(str_val));
+                    params.push(rusqlite::types::Value::Text(str_val));
                 } else if elem.is_int32() {
                     let num_val = elem.to_int32(scope).unwrap().value();
-                    params.push(Box::new(num_val));
+                    params.push(rusqlite::types::Value::Integer(num_val.into()));
                 } else if elem.is_number() {
                     let num_val = elem.to_number(scope).unwrap().value();
-                    params.push(Box::new(num_val));
+                    params.push(rusqlite::types::Value::Real(num_val));
                 } else if elem.is_boolean() {
                     let bool_val = elem.to_boolean(scope).is_true();
-                    params.push(Box::new(bool_val));
+                    params.push(rusqlite::types::Value::Integer(bool_val.into()));
                 } else if elem.is_null_or_undefined() {
-                    params.push(Box::new(None::<String>));
+                    params.push(rusqlite::types::Value::Null);
                 } else {
                     println!("Param {}: Unsupported type", i);
                 }
@@ -98,10 +98,19 @@ fn main() {
             }
 
             let conn = Connection::open_in_memory().unwrap();
-            let mut stmt = conn.prepare("with blah as (values (?, ?, ?, ?)) SELECT * FROM blah").unwrap();
+            let mut stmt = conn
+                .prepare("with blah as (values (?, ?, ?, ?)) SELECT * FROM blah")
+                .unwrap();
             let cols: Vec<String> = stmt.column_names().iter().map(|&s| s.to_string()).collect();
             println!("cols: {:?}", cols);
-            let mut rows = stmt.query(params_from_iter(params)).unwrap();
+            let mut rows = stmt
+                .query(params_from_iter(
+                    params
+                        .iter()
+                        .map(|f| f.clone())
+                        .collect::<Vec<rusqlite::types::Value>>(),
+                ))
+                .unwrap(); // cloning just so I can reuse the value on the response of the function call below
 
             // Collect JSON objects into an array
             let mut json_array: Vec<Map<String, Value>> = Vec::new();
@@ -115,9 +124,15 @@ fn main() {
                     let value = match row.get_ref(idx).unwrap() {
                         ValueRef::Null => Value::Null,
                         ValueRef::Integer(i) => Value::Number(serde_json::Number::from(i)),
-                        ValueRef::Real(r) => Value::Number(serde_json::Number::from_f64(r).unwrap()),
+                        ValueRef::Real(r) => {
+                            Value::Number(serde_json::Number::from_f64(r).unwrap())
+                        }
                         ValueRef::Text(t) => Value::String(String::from_utf8(t.to_vec()).unwrap()),
-                        ValueRef::Blob(b) => Value::String(String::from_utf8(b.to_vec()).unwrap()), // like b64 encode
+                        // ValueRef::Blob(b) => Value::String(String::from_utf8(b.to_vec()).unwrap()), // would b64 encode
+                        ValueRef::Blob(b) => json!(b.to_vec()),
+                        // ValueRef::Blob(b) => {
+                        //     Value::Array(b.iter().map(|&f| Value::Number(f.into())).collect())
+                        // }
                     };
                     json_object.insert(col.to_string(), value);
                 }
@@ -129,8 +144,9 @@ fn main() {
             println!("{}", serde_json::to_string_pretty(&json_array).unwrap());
 
             // Return a result back to JavaScript (for example, the length of params)
-            // let result = v8::Number::new(scope, params.len() as f64);
-            rv.set(v8::Number::new(scope, 3 as f64).into());
+            let result = v8::Number::new(scope, params.len() as f64);
+            rv.set(result.into());
+            // rv.set(v8::Number::new(scope, 3 as f64).into());
         }
 
         // Create a function template
