@@ -1,3 +1,5 @@
+use std::{ffi::c_void, ptr};
+
 use rusqlite::{params_from_iter, types::ValueRef, Connection, ToSql};
 use serde_json::{json, Map, Value};
 
@@ -8,8 +10,34 @@ fn main() {
     v8::V8::initialize();
 
     {
+        let mb = 1 << 20;
+
         // Create a new Isolate and make it the current one.
-        let isolate = &mut v8::Isolate::new(v8::CreateParams::default());
+        let mut isolate = &mut v8::Isolate::new(v8::CreateParams::default().heap_limits(mb, 10 * mb));
+
+        extern "C" fn oom_handler(_: *const std::os::raw::c_char, _: &v8::OomDetails) {
+            panic!("OOM!")
+        }
+        isolate.set_oom_error_handler(oom_handler);
+
+        extern "C" fn heap_limit_callback(
+            data: *mut c_void,
+            current_heap_limit: usize,
+            _initial_heap_limit: usize,
+        ) -> usize {
+            // let state = unsafe { &mut *(data as *mut TestHeapLimitState) };
+            // state.near_heap_limit_callback_calls += 1;
+            let isolate = unsafe {&mut *(data as *mut v8::Isolate)};
+            let terminated = isolate.terminate_execution();
+            println!("near limit! {:?}", terminated);
+            // murder the isolate
+            current_heap_limit * 2 // give us some space to kill it
+        }
+        let isolate_ptr: &mut v8::Isolate = &mut isolate;
+
+        // Cast the isolate pointer to *mut c_void
+        let data: *mut c_void = isolate_ptr as *mut v8::Isolate as *mut c_void;
+        isolate.add_near_heap_limit_callback(heap_limit_callback, data);
 
         // Create a stack-allocated handle scope.
         let handle_scope = &mut v8::HandleScope::new(isolate);
@@ -19,6 +47,7 @@ fn main() {
 
         // Enter the context for compiling and running scripts.
         let scope = &mut v8::ContextScope::new(handle_scope, context);
+        let mut scope = v8::TryCatch::new(scope);
 
         // Define the `query` function in Rust.
         fn query(
@@ -163,15 +192,15 @@ fn main() {
         }
 
         // Create a function template
-        let query_tmpl = v8::FunctionTemplate::new(scope, query);
+        let query_tmpl = v8::FunctionTemplate::new(&mut scope, query);
 
         // Convert the function template to a function
-        let query_fn = query_tmpl.get_function(scope).unwrap();
+        let query_fn = query_tmpl.get_function(&mut scope).unwrap();
 
         // Add the function to the global object
-        let global = context.global(scope);
-        let query_key = v8::String::new(scope, "query").unwrap();
-        global.set(scope, query_key.into(), query_fn.into());
+        let global = context.global(&mut scope);
+        let query_key = v8::String::new(&mut scope, "query").unwrap();
+        global.set(&mut scope, query_key.into(), query_fn.into());
 
         fn console_log(
             scope: &mut v8::HandleScope,
@@ -199,36 +228,41 @@ fn main() {
         }
 
         // Create the `console` object
-        let console = v8::Object::new(scope);
+        let console = v8::Object::new(&mut scope);
 
         // Create a function template
-        let console_log_tmpl = v8::FunctionTemplate::new(scope, console_log);
+        let console_log_tmpl = v8::FunctionTemplate::new(&mut scope, console_log);
 
         // Convert the function template to a function
-        let console_log_fn = console_log_tmpl.get_function(scope).unwrap();
+        let console_log_fn = console_log_tmpl.get_function(&mut scope).unwrap();
 
         // Attach the `log` function to the `console` object
-        let log_key = v8::String::new(scope, "log").unwrap();
-        console.set(scope, log_key.into(), console_log_fn.into());
-        
+        let log_key = v8::String::new(&mut scope, "log").unwrap();
+        console.set(&mut scope, log_key.into(), console_log_fn.into());
+
         // Create a function template
-        let console_error_tmpl = v8::FunctionTemplate::new(scope, console_error);
+        let console_error_tmpl = v8::FunctionTemplate::new(&mut scope, console_error);
 
         // Convert the function template to a function
-        let console_error_fn = console_error_tmpl.get_function(scope).unwrap();
+        let console_error_fn = console_error_tmpl.get_function(&mut scope).unwrap();
 
         // Attach the `log` function to the `console` object
-        let log_key = v8::String::new(scope, "error").unwrap();
-        console.set(scope, log_key.into(), console_error_fn.into());
+        let log_key = v8::String::new(&mut scope, "error").unwrap();
+        console.set(&mut scope, log_key.into(), console_error_fn.into());
 
         // Add the `console` object to the global object
-        let console_key = v8::String::new(scope, "console").unwrap();
-        global.set(scope, console_key.into(), console.into());
+        let console_key = v8::String::new(&mut scope, "console").unwrap();
+        global.set(&mut scope, console_key.into(), console.into());
 
         // Create a string containing the JavaScript source code for MyClass.
         let c_source = r#"
             class MyClass {
                 multiply(a, b) {
+                    let z = []
+                    // Comment this in to OOM crash
+                    // while (true) {
+                    //     z.push("THIS IS A VERY LONG STRING")
+                    // }
                     return a * b;
                 }
 
@@ -236,22 +270,23 @@ fn main() {
                     let a = query("SELECT * FROM data", [1, 2.1, 'test', true]);
                     console.log("hey", a)
                     console.error("hey", JSON.stringify(a), JSON.parse(JSON.stringify(a)))
+                    return a
                 }
             }
             this.MyClass = MyClass;"#;
 
-        let source = v8::String::new(scope, c_source).unwrap();
+        let source = v8::String::new(&mut scope, c_source).unwrap();
 
         // Compile the source code.
-        let script = v8::Script::compile(scope, source, None).unwrap();
+        let script = v8::Script::compile(&mut scope, source, None).unwrap();
 
         // Run the script to define the class.
-        script.run(scope).unwrap();
+        script.run(&mut scope).unwrap();
 
         // Get the MyClass constructor from the global object.
-        let global = context.global(scope);
-        let key = v8::String::new(scope, "MyClass").unwrap();
-        let class_value = global.get(scope, key.into()).unwrap();
+        let global = context.global(&mut scope);
+        let key = v8::String::new(&mut scope, "MyClass").unwrap();
+        let class_value = global.get(&mut scope, key.into()).unwrap();
 
         // Ensure it's a function (constructor).
         if !class_value.is_function() {
@@ -261,11 +296,11 @@ fn main() {
         let class_constructor = v8::Local::<v8::Function>::try_from(class_value).unwrap();
 
         // Create an instance of MyClass.
-        let instance = class_constructor.new_instance(scope, &[]).unwrap();
+        let instance = class_constructor.new_instance(&mut scope, &[]).unwrap();
 
         // Get the multiply method from the instance.
-        let multiply_key = v8::String::new(scope, "multiply").unwrap();
-        let multiply_value = instance.get(scope, multiply_key.into()).unwrap();
+        let multiply_key = v8::String::new(&mut scope, "multiply").unwrap();
+        let multiply_value = instance.get(&mut scope, multiply_key.into()).unwrap();
 
         // Ensure it's a function.
         if !multiply_value.is_function() {
@@ -275,39 +310,53 @@ fn main() {
         let multiply_fn = v8::Local::<v8::Function>::try_from(multiply_value).unwrap();
 
         // Now we can call the `multiply` method on the instance from Rust.
-        let arg1 = v8::Number::new(scope, 3.0);
-        let arg2 = v8::Number::new(scope, 4.0);
+        let arg1 = v8::Number::new(&mut scope, 3.0);
+        let arg2 = v8::Number::new(&mut scope, 4.0);
         let args = &[arg1.into(), arg2.into()];
-        let result = multiply_fn.call(scope, instance.into(), args).unwrap();
+        let result = match multiply_fn.call(&mut scope, instance.into(), args) {
+            Some(result) => {
+                println!("result");
+                result
+            }
+            None => {
+                println!("Has caught: {}, can continue: {}", scope.has_caught(), scope.can_continue());
+                panic!("exiting now")
+            }
+        };
 
         // Convert the result to a number.
-        let result = result.to_number(scope).unwrap();
+        let result = result.to_number(&mut scope).unwrap();
         println!("3 * 4 = {}", result.value());
 
         // Test calling the query function from JavaScript.
-        let test_query_key = v8::String::new(scope, "testQuery").unwrap();
-        let test_query_value = instance.get(scope, test_query_key.into()).unwrap();
+        let test_query_key = v8::String::new(&mut scope, "testQuery").unwrap();
+        let test_query_value = instance.get(&mut scope, test_query_key.into()).unwrap();
         let test_query_fn = v8::Local::<v8::Function>::try_from(test_query_value).unwrap();
-        let result = test_query_fn.call(scope, instance.into(), &[]).unwrap();
+        let result = test_query_fn
+            .call(&mut scope, instance.into(), &[])
+            .unwrap();
         println!("Returned array: {:?}", result.is_array());
 
         if result.is_array() {
             let arr = v8::Local::<v8::Array>::try_from(result).unwrap();
             for i in 0..arr.length() {
-                let key = v8::Number::new(scope, i as f64);
-                let elem = arr.get(scope, key.into()).unwrap();
+                let key = v8::Number::new(&mut scope, i as f64);
+                let elem = arr.get(&mut scope, key.into()).unwrap();
 
                 if elem.is_string() {
-                    let str_val = elem.to_string(scope).unwrap().to_rust_string_lossy(scope);
+                    let str_val = elem
+                        .to_string(&mut scope)
+                        .unwrap()
+                        .to_rust_string_lossy(&mut scope);
                     println!("Array item {}: String - `{}`", i, str_val);
                 } else if elem.is_int32() {
-                    let num_val = elem.to_int32(scope).unwrap().value();
+                    let num_val = elem.to_int32(&mut scope).unwrap().value();
                     println!("Array item {}: Int - `{}`", i, num_val);
                 } else if elem.is_number() {
-                    let num_val = elem.to_number(scope).unwrap().value();
+                    let num_val = elem.to_number(&mut scope).unwrap().value();
                     println!("Array item {}: Float - `{}`", i, num_val);
                 } else if elem.is_boolean() {
-                    let bool_val = elem.to_boolean(scope).is_true();
+                    let bool_val = elem.to_boolean(&mut scope).is_true();
                     println!("Array item {}: Boolean - `{}`", i, bool_val);
                 } else if elem.is_array() {
                     println!("Array item {}: Array", i);
@@ -315,9 +364,9 @@ fn main() {
                     println!(
                         "Array item {}: Object - {}",
                         i,
-                        v8::json::stringify(scope, elem)
+                        v8::json::stringify(&mut scope, elem)
                             .unwrap()
-                            .to_rust_string_lossy(scope)
+                            .to_rust_string_lossy(&mut scope)
                     );
                 } else if elem.is_null_or_undefined() {
                     println!("Array item {}: Null or Undefined", i);
