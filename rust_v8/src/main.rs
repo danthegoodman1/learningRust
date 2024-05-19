@@ -2,6 +2,7 @@ use std::{ffi::c_void, ptr};
 
 use rusqlite::{params_from_iter, types::ValueRef, Connection, ToSql};
 use serde_json::{json, Map, Value};
+use v8::HeapStatistics;
 
 fn main() {
     // Initialize V8.
@@ -28,6 +29,9 @@ fn main() {
             // let state = unsafe { &mut *(data as *mut TestHeapLimitState) };
             // state.near_heap_limit_callback_calls += 1;
             let isolate = unsafe {&mut *(data as *mut v8::Isolate)};
+            let mut stats = <HeapStatistics as std::default::Default>::default();
+            isolate.get_heap_statistics(&mut stats);
+            println!("used heap size: {}, total heap size: {}", stats.used_heap_size(), stats.total_heap_size());
             let terminated = isolate.terminate_execution();
             println!("near limit! {:?}", terminated);
             // murder the isolate
@@ -259,7 +263,7 @@ fn main() {
             class MyClass {
                 multiply(a, b) {
                     let z = []
-                    // Comment this in to OOM crash
+                    // Comment this in to OOM
                     // while (true) {
                     //     z.push("THIS IS A VERY LONG STRING")
                     // }
