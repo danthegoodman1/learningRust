@@ -1,8 +1,7 @@
-use std::cell::RefCell;
-use std::{ffi::c_void, rc::Rc};
+use std::{ffi::c_void};
 use v8::{
-    self, External, FunctionCallbackArguments, FunctionCallbackInfo, FunctionTemplate, HandleScope,
-    Local, Name, ObjectTemplate, PropertyCallbackArguments, PropertyCallbackInfo, ReturnValue,
+    self, FunctionCallbackArguments, HandleScope,
+    Local, Name, PropertyCallbackArguments, ReturnValue,
 };
 
 #[derive(Debug)]
@@ -83,9 +82,15 @@ fn get_table(
     scope: &mut HandleScope,
     name: Local<Name>,
     args: PropertyCallbackArguments,
-    rt: ReturnValue,
+    mut rt: ReturnValue,
 ) {
-    println!("get table")
+    println!("get table");
+    if let Some(query) = get_query(scope, args.this()) {
+        println!("got table {}", query.table);
+        rt.set(v8::String::new(scope, query.table.as_str()).unwrap().into());
+    } else {
+        eprintln!("Failed to get Query instance in query_select");
+    }
 }
 
 fn set_table(
@@ -112,7 +117,7 @@ fn set_table(
 }
 
 fn query_select(scope: &mut HandleScope, args: FunctionCallbackArguments, mut rv: v8::ReturnValue) {
-    println!("query seelct");
+    println!("query select");
     if let Some(query) = get_query(scope, args.this()) {
         println!("got it");
         let condition = args
@@ -129,7 +134,9 @@ fn query_select(scope: &mut HandleScope, args: FunctionCallbackArguments, mut rv
 }
 
 fn query_where(scope: &mut HandleScope, args: FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    println!("query where");
     if let Some(query) = get_query(scope, args.this()) {
+        println!("got it");
         let condition = args
             .get(0)
             .to_string(scope)
@@ -181,6 +188,7 @@ fn main() {
         let code = r#"
             let q = new Query("users");
             q.select("name, age");
+            let a = q.table;
             // q.where("age > 21");
             q
         "#;
