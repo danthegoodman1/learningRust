@@ -1,13 +1,146 @@
-use std::convert::TryFrom;
-use v8::ContextScope;
-use v8::FunctionCallbackArguments;
-use v8::FunctionTemplate;
-use v8::HandleScope;
-use v8::PromiseResolver;
-use v8::ReturnValue;
+use std::cell::RefCell;
+use std::{ffi::c_void, rc::Rc};
+use v8::{
+    self, External, FunctionCallbackArguments, FunctionCallbackInfo, FunctionTemplate, HandleScope,
+    Local, Name, ObjectTemplate, PropertyCallbackArguments, PropertyCallbackInfo, ReturnValue,
+};
 
-fn rust_do_a_thing(value: i32) -> i32 {
-    value * 2
+#[derive(Debug)]
+struct Query {
+    table: String,
+    columns: Vec<String>,
+    conditions: Vec<String>,
+}
+
+impl Query {
+    fn new(table: &str) -> Self {
+        Query {
+            table: table.to_string(),
+            columns: vec![],
+            conditions: vec![],
+        }
+    }
+
+    fn select(&mut self, columns: &str) {
+        self.columns = columns.split(',').map(|s| s.trim().to_string()).collect();
+    }
+
+    fn r#where(&mut self, condition: &str) {
+        self.conditions.push(condition.to_string());
+    }
+}
+
+fn query_constructor(
+    scope: &mut HandleScope,
+    args: FunctionCallbackArguments,
+    mut rv: v8::ReturnValue,
+) {
+    let table = args
+        .get(0)
+        .to_string(scope)
+        .unwrap()
+        .to_rust_string_lossy(scope);
+    let query = Box::new(Query::new(&table));
+    println!("Query instance created with table: {}", table);
+    let query_ptr = Box::into_raw(query);
+
+    // Create a template for the Query object.
+    let query_template = v8::ObjectTemplate::new(scope);
+    let set = query_template.set_internal_field_count(1);
+    println!("set internal field count: {}", set);
+
+    query_template.set_accessor_with_setter(
+        v8::String::new(scope, "table").unwrap().into(),
+        get_table,
+        set_table,
+    );
+
+    query_template.set(
+        v8::String::new(scope, "select").unwrap().into(),
+        v8::FunctionTemplate::new(scope, query_select).into(),
+    );
+
+    query_template.set(
+        v8::String::new(scope, "where").unwrap().into(),
+        v8::FunctionTemplate::new(scope, query_where).into(),
+    );
+
+    let obj = query_template.new_instance(scope).unwrap();
+    obj.set_internal_field(0, v8::External::new(scope, query_ptr as *mut c_void).into());
+
+    // Return the newly created object
+    rv.set(obj.into());
+}
+
+fn get_query<'a>(scope: &mut HandleScope<'a>, obj: Local<v8::Object>) -> Option<&'a mut Query> {
+    let internal_field = obj.get_internal_field(scope, 0)?;
+    let external = v8::Local::<v8::External>::try_from(internal_field).unwrap();
+    let query_ptr = external.value() as *mut Query;
+    Some(unsafe { &mut *query_ptr })
+}
+
+fn get_table(
+    scope: &mut HandleScope,
+    name: Local<Name>,
+    args: PropertyCallbackArguments,
+    rt: ReturnValue,
+) {
+    println!("get table")
+}
+
+fn set_table(
+    scope: &mut HandleScope,
+    name: Local<Name>,
+    value: Local<v8::Value>,
+    args: PropertyCallbackArguments,
+    rt: ReturnValue,
+) {
+    println!("set table");
+    if let Some(query) = get_query(scope, args.this()) {
+        // let columns = args
+        //     .get(0)
+        //     .to_string(scope)
+        //     .unwrap()
+        //     .to_rust_string_lossy(scope);
+        // query.select(&columns);
+        // println!("Query select called with columns: {}", columns);
+        // rv.set(v8::undefined(scope).into());
+        println!("got it!")
+    } else {
+        eprintln!("Failed to get Query instance in query_select");
+    }
+}
+
+fn query_select(scope: &mut HandleScope, args: FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    println!("query seelct");
+    if let Some(query) = get_query(scope, args.this()) {
+        println!("got it");
+        let condition = args
+            .get(0)
+            .to_string(scope)
+            .unwrap()
+            .to_rust_string_lossy(scope);
+        query.r#where(&condition);
+        println!("Query where called with condition: {}", condition);
+        rv.set(v8::undefined(scope).into());
+    } else {
+        eprintln!("Failed to get Query instance in query_where");
+    }
+}
+
+fn query_where(scope: &mut HandleScope, args: FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    if let Some(query) = get_query(scope, args.this()) {
+        let condition = args
+            .get(0)
+            .to_string(scope)
+            .unwrap()
+            .to_rust_string_lossy(scope);
+        query.r#where(&condition);
+        println!("Query where called with condition: {}", condition);
+        rv.set(v8::undefined(scope).into());
+    } else {
+        eprintln!("Failed to get Query instance in query_where");
+    }
 }
 
 fn main() {
@@ -26,81 +159,44 @@ fn main() {
         // Create a new context.
         let context = v8::Context::new(handle_scope);
 
-        // Enter the context for compiling and running JavaScript.
-        let scope = &mut ContextScope::new(handle_scope, context);
+        // Enter the context for compiling and running the script.
+        let scope = &mut v8::ContextScope::new(handle_scope, context);
 
-        // Create and compile the JavaScript source.
-        let c_source = r#"
-            async function do_a_thing(value) {
-                return await rust_do_a_thing(value);
-            }
-        "#;
+        // Create a Query constructor function.
+        let query_constructor_template = v8::FunctionTemplate::new(scope, query_constructor);
+        query_constructor_template.set_class_name(v8::String::new(scope, "Query").unwrap());
 
-        let source = v8::String::new(scope, c_source).unwrap();
-        let script = v8::Script::compile(scope, source, None).unwrap();
-        script.run(scope).unwrap();
-
-        // Get the global object.
+        // Register the constructor in the global object.
         let global = context.global(scope);
-
-        // Function binding for `rust_do_a_thing`.
-        let rust_do_a_thing_fn = {
-            let rust_do_a_thing =
-                |scope: &mut HandleScope, args: FunctionCallbackArguments, mut rv: ReturnValue| {
-                    let value = args.get(0).int32_value(scope).unwrap();
-                    let result = rust_do_a_thing(value);
-                    let promise = {
-                        let resolver = PromiseResolver::new(scope).unwrap();
-                        let val = v8::Integer::new(scope, result).into();
-                        resolver.resolve(scope, val).unwrap();
-                        resolver.get_promise(scope)
-                    };
-                    rv.set(promise.into());
-                };
-            FunctionTemplate::new(scope, rust_do_a_thing)
+        {
+            let key = v8::String::new(scope, "Query").unwrap().into();
+            let val = query_constructor_template
                 .get_function(scope)
                 .unwrap()
-        };
-
-        let rust_do_a_thing_key = v8::String::new(scope, "rust_do_a_thing").unwrap();
-        global.set(scope, rust_do_a_thing_key.into(), rust_do_a_thing_fn.into());
-
-        // Now, you can call `do_a_thing` from Rust.
-        let key = v8::String::new(scope, "do_a_thing").unwrap();
-        let do_a_thing_value = global.get(scope, key.into()).unwrap();
-
-        // Ensure `do_a_thing` is a function.
-        if !do_a_thing_value.is_function() {
-            panic!("do_a_thing is not a function");
+                .into();
+            global.set(scope, key, val);
         }
 
-        let do_a_thing_fn = v8::Local::<v8::Function>::try_from(do_a_thing_value).unwrap();
+        // JavaScript code to create and manipulate a Query object.
+        let code = r#"
+            let q = new Query("users");
+            q.select("name, age");
+            // q.where("age > 21");
+            q
+        "#;
+        let source = v8::String::new(scope, code).unwrap();
+        let script = v8::Script::compile(scope, source, None).unwrap();
 
-        // Call `do_a_thing` function from Rust with an example value.
-        let arg = v8::Integer::new(scope, 5);
-        let args = &[arg.into()];
-        let result = do_a_thing_fn.call(scope, global.into(), args).unwrap();
+        // Run the script.
+        let result = script.run(scope).unwrap();
 
-        if result.is_promise() {
-            let promise = v8::Local::<v8::Promise>::try_from(result).unwrap();
-
-            let callback = |_scope: &mut v8::HandleScope,
-                            args: v8::FunctionCallbackArguments,
-                            mut rv: v8::ReturnValue| {
-                rv.set(args.get(0));
-            };
-
-            let resolved_fn = v8::Function::new(scope, callback).unwrap();
-
-            promise.then(scope, resolved_fn).unwrap();
-
-            scope.perform_microtask_checkpoint();
-
-            let resolved_value = promise.result(scope);
-            let resolved_number = resolved_value.to_number(scope).unwrap();
-            println!("do_a_thing result: {}", resolved_number.value());
+        // Extract the result (the Query object) from JavaScript.
+        let query_obj = result.to_object(scope).unwrap();
+        if let Some(query) = get_query(scope, query_obj) {
+            // Print the resulting Query object.
+            println!("Rust Query object: {:?}", query);
         } else {
-            println!("do_a_thing did not return a promise");
+            eprintln!("Failed to get Query instance in main");
         }
     }
 }
