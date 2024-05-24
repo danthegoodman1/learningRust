@@ -127,7 +127,8 @@ fn query_select(scope: &mut HandleScope, args: FunctionCallbackArguments, mut rv
             .to_rust_string_lossy(scope);
         query.r#where(&condition);
         println!("Query where called with condition: {}", condition);
-        rv.set(v8::undefined(scope).into());
+        // rv.set(v8::undefined(scope).into()); // return undefined
+        rv.set(args.this().into());
     } else {
         eprintln!("Failed to get Query instance in query_where");
     }
@@ -144,7 +145,7 @@ fn query_where(scope: &mut HandleScope, args: FunctionCallbackArguments, mut rv:
             .to_rust_string_lossy(scope);
         query.r#where(&condition);
         println!("Query where called with condition: {}", condition);
-        rv.set(v8::undefined(scope).into());
+        rv.set(args.this().into());
     } else {
         eprintln!("Failed to get Query instance in query_where");
     }
@@ -187,7 +188,7 @@ fn main() {
         // JavaScript code to create and manipulate a Query object.
         let code = r#"
             let q = new Query("users");
-            q.select("name, age");
+            q.select("name, age").where("age > 21");
             let a = q.table;
             // q.where("age > 21");
             q
