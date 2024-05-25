@@ -1,3 +1,5 @@
+use std::time::SystemTime;
+
 fn main() {
     // Initialize V8.
     let platform = v8::new_default_platform(0, false).make_shared();
@@ -5,6 +7,7 @@ fn main() {
     v8::V8::initialize();
 
     {
+        let start = SystemTime::now();
         // Create a new Isolate and make it the current one.
         let isolate = &mut v8::Isolate::new(v8::CreateParams::default());
 
@@ -52,6 +55,6 @@ fn main() {
 
         // Convert the result to a number.
         let result = result.to_number(scope).unwrap();
-        println!("3 * 4 = {}", result.value());
+        println!("3 * 4 = {} in {}us", result.value(), start.elapsed().unwrap().as_micros());
     }
 }
