@@ -70,7 +70,7 @@ fn main() -> Result<()> {
             } => {
                 if let Some(val) = pragma_value {
                     println!(
-                        "PRAGMA {} to {}",
+                        "PRAGMA {} set to {}",
                         pragma_name,
                         val
                     );
@@ -94,14 +94,26 @@ fn main() -> Result<()> {
     )?;
     conn.pragma_query(Some(rusqlite::DatabaseName::Main),
     "soft_heap_limit", |row | -> Result<()> {
-        println!("soft heap limit pragma: {:?}", row);
+        println!("soft_heap_limit pragma: {:?}", row);
+        Ok(())
+    }).unwrap();
+    conn.pragma_update(
+        Some(rusqlite::DatabaseName::Main),
+        "hard_heap_limit",
+        rusqlite::types::Value::Integer(1024),
+    )?;
+    conn.pragma_query(Some(rusqlite::DatabaseName::Main),
+    "hard_heap_limit", |row | -> Result<()> {
+        println!("hard_heap_limit pragma: {:?}", row);
         Ok(())
     }).unwrap();
     // Direct ffi call method
     unsafe {
-        sqlite3_soft_heap_limit64(1024);
+        // sqlite3_soft_heap_limit64(1024);
         let soft_limit = sqlite3_soft_heap_limit64(-1);
-        println!("Soft limit: {}", soft_limit);
+        println!("Soft heap limit (ffi): {}", soft_limit);
+        let hard_limit = sqlite3_hard_heap_limit64(-1);
+        println!("Hard heap limit (ffi): {}", hard_limit);
     }
 
     conn.execute(
