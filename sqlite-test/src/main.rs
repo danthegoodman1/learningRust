@@ -1,3 +1,6 @@
+use std::ffi::c_int;
+
+use rusqlite::ffi::{sqlite3_config, sqlite3_int64, sqlite3_memory_used, sqlite3_soft_heap_limit64, SQLITE_CONFIG_MEMSTATUS, SQLITE_STATUS_MEMORY_USED};
 use rusqlite::hooks::{AuthContext, Authorization};
 use rusqlite::types::ValueRef;
 use rusqlite::{Connection, Result};
@@ -11,8 +14,31 @@ struct Person {
     data: Option<Vec<u8>>,
 }
 
+extern "C" {
+    fn sqlite3_status(op: c_int, p_current: *mut c_int, p_highwater: *mut c_int, reset_flag: c_int) -> c_int;
+    pub fn sqlite3_hard_heap_limit64(N: sqlite3_int64) -> sqlite3_int64;
+}
+
 fn main() -> Result<()> {
     let conn = Connection::open_in_memory()?;
+
+    unsafe {
+        let mut current = 0;
+        let mut highwater = 0;
+        let result = sqlite3_config(SQLITE_CONFIG_MEMSTATUS, 1);
+        if result == 0 {
+            println!("config mem status disabled");
+        } else {
+            println!("config mem status enabled");
+        }
+
+        let result = sqlite3_status(SQLITE_STATUS_MEMORY_USED, &mut current, &mut highwater, 0);
+        if result == 0 {
+            println!("Memory tracking is enabled. Current memory usage: {} bytes, Highwater mark: {} bytes", current, highwater);
+        } else {
+            println!("Failed to retrieve memory status.");
+        }
+    }
 
     conn.authorizer(Some(|ctx: AuthContext| {
         // println!("{:?}", ctx);
@@ -38,11 +64,45 @@ fn main() -> Result<()> {
                     return Authorization::Deny;
                 }
             }
-            _ => (), // do nothing otherwise
+            rusqlite::hooks::AuthAction::Pragma {
+                pragma_name,
+                pragma_value,
+            } => {
+                if let Some(val) = pragma_value {
+                    println!(
+                        "PRAGMA {} to {}",
+                        pragma_name,
+                        val
+                    );
+                }
+            }
+            // _ => (), // do nothing otherwise
+            _ => {
+                println!("ACTION: {:?}", ctx.action)
+            } // do nothing otherwise
         }
         Authorization::Allow
     }));
-    conn.authorizer::<fn(AuthContext) -> Authorization>(None); // reset to nothing
+    // conn.authorizer::<fn(AuthContext) -> Authorization>(None); // reset to nothing
+
+    // Hard heap limit doesn't seem to be working (always 0, checking memory seems to be 0)
+    // Set a very low heap limit to test the functionality
+    conn.pragma_update(
+        Some(rusqlite::DatabaseName::Main),
+        "soft_heap_limit",
+        rusqlite::types::Value::Integer(1024),
+    )?;
+    conn.pragma_query(Some(rusqlite::DatabaseName::Main),
+    "soft_heap_limit", |row | -> Result<()> {
+        println!("soft heap limit pragma: {:?}", row);
+        Ok(())
+    }).unwrap();
+    // Direct ffi call method
+    unsafe {
+        sqlite3_soft_heap_limit64(1024);
+        let soft_limit = sqlite3_soft_heap_limit64(-1);
+        println!("Soft limit: {}", soft_limit);
+    }
 
     conn.execute(
         "CREATE TABLE person (
@@ -58,6 +118,26 @@ fn main() -> Result<()> {
         name: "Steven".to_string(),
         data: None,
     };
+
+    // Uncomment to test heap limits
+    // for i in 0..200_000 {
+    //     let result = conn.execute(
+    //         "INSERT INTO person (name, data) VALUES (?1, ?2)",
+    //         (&me.name, &me.data),
+    //     );
+
+    //     match result {
+    //         Ok(_) => println!("Inserted row {}", i),
+    //         Err(err) => {
+    //             println!("Failed to insert row {}: {}", i, err);
+    //             break;
+    //         }
+    //     }
+
+    //     // Check memory usage using sqlite3_memory_used FFI function
+    //     let ffi_memory_used = unsafe { sqlite3_memory_used() };
+    //     println!("Memory used (via FFI) after {} inserts: {} bytes", i, ffi_memory_used);
+    // }
 
     conn.execute(
         "INSERT INTO person (name, data) VALUES (?1, ?2)",
