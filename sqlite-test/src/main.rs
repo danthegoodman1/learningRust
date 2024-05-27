@@ -85,7 +85,7 @@ fn main() -> Result<()> {
     }));
     // conn.authorizer::<fn(AuthContext) -> Authorization>(None); // reset to nothing
 
-    // Hard heap limit doesn't seem to be working (always 0, checking memory seems to be 0)
+    // NOTE: Hard heap limit doesn't work on default macOS sqlite (works on linux and feature "bundled")
     // Set a very low heap limit to test the functionality
     conn.pragma_update(
         Some(rusqlite::DatabaseName::Main),
@@ -102,6 +102,7 @@ fn main() -> Result<()> {
         "hard_heap_limit",
         rusqlite::types::Value::Integer(1024),
     )?;
+    // This will likely OOM
     conn.pragma_query(Some(rusqlite::DatabaseName::Main),
     "hard_heap_limit", |row | -> Result<()> {
         println!("hard_heap_limit pragma: {:?}", row);
