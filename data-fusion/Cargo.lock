@@ -640,6 +640,8 @@ dependencies = [
 name = "data-fusion"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
+ "dashmap",
  "datafusion",
  "tokio",
 ]

@@ -4,5 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-datafusion = "38.0.0"
-tokio = {version = "1.38.0", features = ["full"]}
+async-trait = "0.1.80"
+dashmap = "5.5.3"
+datafusion = { version = "38.0.0" }
+tokio = { version = "1.38.0", features = ["full"] }

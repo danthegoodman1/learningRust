@@ -1,102 +1,106 @@
-use std::collections::HashMap;
+use std::{any::Any, collections::HashMap, sync::Arc};
 
-use datafusion::{arrow::array::RecordBatch, prelude::*};
+use async_trait::async_trait;
+use dashmap::DashMap;
+use datafusion::{
+    arrow::array::RecordBatch,
+    catalog::{schema::SchemaProvider, CatalogProvider},
+    datasource::TableProvider,
+    error::DataFusionError,
+    prelude::*,
+};
+
+struct MemorySchemaProvider {
+    tables: DashMap<String, Arc<dyn TableProvider>>,
+}
+
+impl MemorySchemaProvider {
+    fn new() -> Self {
+        MemorySchemaProvider {
+            tables: DashMap::new(),
+        }
+    }
+}
+
+#[async_trait]
+impl SchemaProvider for MemorySchemaProvider {
+    #[doc = " Returns this `SchemaProvider` as [`Any`] so that it can be downcast to a"]
+    #[doc = " specific implementation."]
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    #[doc = " Retrieves the list of available table names in this schema."]
+    fn table_names(&self) -> Vec<String> {
+        println!("getting table names");
+        self.tables.iter().map(|f| f.key().clone()).collect()
+    }
+
+    async fn table(&self, name: &str) -> Result<Option<Arc<dyn TableProvider>>, DataFusionError> {
+        println!("getting table: {}", name);
+        let table = self.tables.get(name);
+        if let Some(table) = table {
+            return Ok(Some(table.value().clone()));
+        } else {
+            return Ok(None);
+        }
+    }
+
+    // This is not required
+    fn register_table(
+        &self,
+        name: String,
+        table: Arc<dyn TableProvider>,
+    ) -> Result<Option<Arc<dyn TableProvider>>, DataFusionError> {
+        println!("setting table {}", name);
+        self.tables.insert(name, table.clone());
+        Ok(Some(table))
+    }
+
+    #[doc = " Returns true if table exist in the schema provider, false otherwise."]
+    fn table_exist(&self, name: &str) -> bool {
+        println!("table exists: {}", name);
+        self.tables.contains_key(name)
+    }
+}
 
 #[tokio::main]
 async fn main() -> datafusion::error::Result<()> {
     // register the table
     let ctx = SessionContext::new();
+    let schema_provider = Arc::new(MemorySchemaProvider::new());
+
+    let catalog_provider = datafusion::catalog::MemoryCatalogProvider::new();
+    catalog_provider
+        .register_schema("public", schema_provider)
+        .unwrap();
+
+    // Putting the csv table in our custom schema!
+    ctx.register_catalog("datafusion", Arc::new(catalog_provider));
     ctx.register_csv("example", "example.csv", CsvReadOptions::new())
         .await?;
 
     // create a plan to run a SQL query
     let df = ctx
-        .sql("SELECT a, MIN(b) FROM example WHERE a <= b GROUP BY a order by a LIMIT 100")
+        .sql("SELECT a, MIN(b) FROM example WHERE a <= b GROUP BY a LIMIT 100")
         .await?;
 
     // execute and print results
     let rbs = df.collect().await.unwrap();
+    // println!("{:?}", a);
+    let mut buf = Vec::new();
+    datafusion::arrow::json::writer::LineDelimitedWriter::new(&mut buf)
+        .write_batches(&rbs.iter().collect::<Vec<&RecordBatch>>())
+        .unwrap();
+    println!("JSON: {:?}", String::from_utf8(buf).unwrap());
 
-    println!("Got {} record batches", rbs.len());
-
-    let schema = rbs[0].schema();
-    let fields = schema.fields();
-    let column_names: Vec<String> = fields
-        .iter()
-        .map(|field| field.name().to_string())
-        .collect();
-    println!("got column names {:?}", column_names);
-
-    // Just print as strings
-    for batch in &rbs {
-        for row_index in 0..batch.num_rows() {
-            let row: Vec<String> = (0..batch.num_columns())
-                .map(|col_index| {
-                    let column = batch.column(col_index);
-                    datafusion::arrow::util::display::array_value_to_string(column, row_index)
-                        .unwrap()
-                })
-                .collect();
-            println!("{:?}", row);
-        }
-    }
-
-    // Build a map
-    let mut column_info: HashMap<String, HashMap<String, Vec<String>>> = HashMap::new();
-
-    for field in fields.iter() {
-        let column_name = field.name().to_string();
-        let column_type = field.data_type().to_string();
-
-        let mut values: Vec<String> = Vec::new();
-
-        for batch in &rbs {
-            let column_index = schema.index_of(&column_name).unwrap();
-            let column = batch.column(column_index);
-
-            for row_index in 0..batch.num_rows() {
-                let value = datafusion::arrow::util::display::array_value_to_string(column, row_index).unwrap();
-                values.push(value);
-            }
-        }
-
-        column_info.insert(column_name.clone(),
-            HashMap::from([("type".to_string(), vec![column_type]), ("values".to_string(), values)])
-        );
-    }
-
-    println!("Final map: {:?}", column_info);
-
-    // Handle the values by type
-    for (column_index, field) in fields.iter().enumerate() {
-        let column_name = field.name().to_string();
-        let column_type = field.data_type(); // could match on this type
-        println!("Handling column {} ({})", column_name, column_type.to_string());
-
-        for batch in &rbs {
-            let column = batch.column(column_index);
-
-            for row_index in 0..batch.num_rows() {
-                let value = match column_type {
-                    datafusion::arrow::datatypes::DataType::Int32 => {
-                        let array = column.as_any().downcast_ref::<datafusion::arrow::array::Int32Array>().unwrap();
-                        array.value(row_index).to_string()
-                    },
-                    datafusion::arrow::datatypes::DataType::Float64 => {
-                        let array = column.as_any().downcast_ref::<datafusion::arrow::array::Float64Array>().unwrap();
-                        array.value(row_index).to_string()
-                    },
-                    datafusion::arrow::datatypes::DataType::Utf8 => {
-                        let array = column.as_any().downcast_ref::<datafusion::arrow::array::StringArray>().unwrap();
-                        array.value(row_index).to_string()
-                    },
-                    _ => {
-                        datafusion::arrow::util::display::array_value_to_string(column, row_index).unwrap()
-                    }
-                };
-                println!("Value: {}", value);
-            }
-        }
+    // catalog.schema.table
+    let df = ctx.sql("select * from blah").await.unwrap_err();
+    match df {
+        DataFusionError::Plan(plan) => {
+            println!("Got plan err: {}", plan)
+        },
+        _ => panic!("{df}"),
     }
 
     Ok(())
