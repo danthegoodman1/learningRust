@@ -33,7 +33,7 @@ pub async fn write_key(
         let val = state.kv.read().await;
         let val = val.get(&key);
         match val {
-            Some(val) => {
+            Some(_) => {
                 if let Some(_) = params.not_exists {
                     if state.kv.read().await.contains_key(&key) {
                         return Err(AppError::CustomCode(
