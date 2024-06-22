@@ -141,7 +141,7 @@ async fn list_items(
                 let last_item = kv.last_key_value();
                 match last_item {
                     Some(item) => {
-                        kv.range(..item.0.to_owned() + "~").rev() // temp for the map, just add something larger on the end
+                        kv.range(..item.0.to_owned() + "~").rev() // temp for the map, just add something larger on the end, fdb client has just options for the range iterator https://docs.rs/foundationdb/latest/foundationdb/struct.RangeOption.html
                     },
                     None => kv.range(.."".to_string()).rev(),
                 }
