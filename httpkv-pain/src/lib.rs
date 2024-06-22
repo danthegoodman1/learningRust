@@ -17,7 +17,7 @@ struct AppState {
 
 #[derive(Clone, Debug)]
 struct Item {
-    timestamp: i64,
+    version: i64,
     data: Vec<u8>,
 }
 

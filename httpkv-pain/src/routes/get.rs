@@ -87,7 +87,7 @@ async fn get(
 
         Ok(Response::builder()
             .status(StatusCode::OK)
-            .header("version", HeaderValue::from(val.timestamp))
+            .header("version", HeaderValue::from(val.version))
             .body(body.into())
             .expect("Failed to construct response"))
     } else {
