@@ -1,3 +1,5 @@
+use std::time::SystemTime;
+
 use crate::{AppError, AppState};
 use axum::{
     body::Bytes,
@@ -33,17 +35,20 @@ pub async fn write_key(
         let val = state.kv.read().await;
         let val = val.get(&key);
         match val {
-            Some(_) => {
+            Some(item) => {
                 if let Some(_) = params.not_exists {
-                    if state.kv.read().await.contains_key(&key) {
+                    return Err(AppError::CustomCode(
+                        anyhow!("Key {} exists (nx)", key),
+                        axum::http::StatusCode::CONFLICT,
+                    ));
+                }
+                if let Some(version) = params.version {
+                    if version != item.timestamp {
                         return Err(AppError::CustomCode(
-                            anyhow!("Key {} exists (nx)", key),
+                            anyhow!("Provided version {} does not match found version {}", version, item.timestamp),
                             axum::http::StatusCode::CONFLICT,
                         ));
                     }
-                }
-                if let Some(version) = params.version {
-                    todo!("check version")
                 }
             }
             None => {
@@ -64,7 +69,7 @@ pub async fn write_key(
     state.kv.write().await.insert(
         key,
         crate::Item {
-            timestamp: Instant::now().elapsed().as_nanos(),
+            timestamp: SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_micros() as i64,
             data: body.into(),
         },
     );
