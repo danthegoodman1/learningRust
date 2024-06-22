@@ -8,7 +8,6 @@ use axum::{
 // use axum_extra::extract::Query;
 use anyhow::anyhow;
 use serde::Deserialize;
-use tokio::time::Instant;
 use tracing::{debug, info};
 use validator::Validate;
 
@@ -45,7 +44,11 @@ pub async fn write_key(
                 if let Some(version) = params.version {
                     if version != item.timestamp {
                         return Err(AppError::CustomCode(
-                            anyhow!("Provided version {} does not match found version {}", version, item.timestamp),
+                            anyhow!(
+                                "Provided version {} does not match found version {}",
+                                version,
+                                item.timestamp
+                            ),
                             axum::http::StatusCode::CONFLICT,
                         ));
                     }
@@ -69,7 +72,10 @@ pub async fn write_key(
     state.kv.write().await.insert(
         key,
         crate::Item {
-            timestamp: SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_micros() as i64,
+            timestamp: SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap()
+                .as_micros() as i64,
             data: body.into(),
         },
     );

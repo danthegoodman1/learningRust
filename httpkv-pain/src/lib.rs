@@ -1,11 +1,10 @@
 use std::{collections::BTreeMap, sync::Arc};
 
 use axum::{
-    body::Bytes,
     extract::DefaultBodyLimit,
     http::StatusCode,
     response::{IntoResponse, Response},
-    routing::{get, post},
+    routing::get,
 };
 use tokio::sync::RwLock;
 
