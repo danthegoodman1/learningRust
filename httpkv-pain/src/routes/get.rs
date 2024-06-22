@@ -81,6 +81,7 @@ async fn get(
             // We need to get a subslice of the body
             let start = params.start.or(Some(0)).unwrap() as usize;
             let end = params.end.or(Some(body.len() as i64)).unwrap() as usize;
+            debug!("Getting subslice of value for key {} with start={} end={}", key, start, end);
             body = body[start..end].to_vec();
         }
 
@@ -107,7 +108,7 @@ async fn listget(
     // Build the list of items
     let range_start = prefix.or(Some(String::from(""))).unwrap();
     let take = params.limit.or(Some(100)).unwrap() as usize;
-    debug!("Using range start '{}' with take {}", range_start, take);
+    debug!("Using range start '{}' take={} with_vals={}", range_start, take, with_vals);
     for (key, item) in kv
         .range(range_start..)
         .take(take)
