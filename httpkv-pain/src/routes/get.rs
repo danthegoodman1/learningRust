@@ -4,7 +4,6 @@ use axum::{
     http::{HeaderValue, StatusCode},
     response::{IntoResponse, Response},
 };
-use base64::prelude::*;
 // use axum_extra::extract::Query;
 use anyhow::anyhow;
 use serde::Deserialize;
