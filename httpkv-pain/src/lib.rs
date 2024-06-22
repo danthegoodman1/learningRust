@@ -1,24 +1,30 @@
 use std::{collections::BTreeMap, sync::Arc};
 
 use axum::{
-    body::Bytes, extract::DefaultBodyLimit, http::StatusCode, response::{IntoResponse, Response}, routing::{get, post}
+    body::Bytes,
+    extract::DefaultBodyLimit,
+    http::StatusCode,
+    response::{IntoResponse, Response},
+    routing::{get, post},
 };
+use tokio::sync::RwLock;
 
 mod routes;
 
 #[derive(Clone, Debug)]
 struct AppState {
-    kv: Arc<BTreeMap<String, Bytes>>,
+    kv: Arc<RwLock<BTreeMap<String, Item>>>,
 }
 
+#[derive(Clone, Debug)]
 struct Item {
-    timestamp: i64,
-    data: [u8],
+    timestamp: u128,
+    data: Vec<u8>,
 }
 
 pub async fn start(addr: &str) {
     let state = AppState {
-        kv: Arc::new(BTreeMap::new()),
+        kv: Arc::new(RwLock::new(BTreeMap::new())),
     };
     let app = axum::Router::new()
         .route("/", get(routes::get::get_root))
@@ -45,19 +51,13 @@ pub enum AppError {
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         match self {
-            AppError::Anyhow(e) => {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    format!("Something went wrong: {}", e),
-                )
-            },
-            AppError::CustomCode(e, code) => {
-                (
-                    code,
-                    format!("{}", e),
-                )
-            },
-        }.into_response()
+            AppError::Anyhow(e) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Something went wrong: {}", e),
+            ),
+            AppError::CustomCode(e, code) => (code, format!("{}", e)),
+        }
+        .into_response()
     }
 }
 

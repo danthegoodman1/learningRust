@@ -58,10 +58,12 @@ pub async fn get_or_list_prefix(
     }
 }
 
-#[tracing::instrument(level="debug", skip(state))]
+#[tracing::instrument(level="debug")]
 async fn get(state: AppState, params: &GetOrListParams, key: &String) -> Result<Bytes, AppError> {
-    if let Some(val) = state.kv.get(key) {
-        Ok(val.clone())
+    let kv = state.kv.read().await;
+    debug!("Map: {:?}", kv);
+    if let Some(val) = kv.get(key) {
+        Ok(val.data.clone().into())
     } else {
         Err(anyhow!("not found").into())
     }
