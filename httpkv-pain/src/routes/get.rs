@@ -20,7 +20,7 @@ pub struct GetOrListParams {
     #[serde(default, alias = "vals")]
     with_vals: Option<String>,
     start: Option<i64>,
-    end: Option<i64>
+    end: Option<i64>,
 }
 
 #[tracing::instrument(level = "debug", skip(state))]
@@ -81,7 +81,10 @@ async fn get(
             // We need to get a subslice of the body
             let start = params.start.or(Some(0)).unwrap() as usize;
             let end = params.end.or(Some(body.len() as i64)).unwrap() as usize;
-            debug!("Getting subslice of value for key {} with start={} end={}", key, start, end);
+            debug!(
+                "Getting subslice of value for key {} with start={} end={}",
+                key, start, end
+            );
             body = body[start..end].to_vec();
         }
 
@@ -101,28 +104,36 @@ async fn listget(
     params: &GetOrListParams,
     prefix: Option<String>,
 ) -> Result<Response, AppError> {
-    let mut items: Vec<String> = Vec::new();
+    let mut items: Vec<u8> = Vec::new();
     let kv = state.kv.read().await;
     let with_vals = params.with_vals.is_some();
 
     // Build the list of items
     let range_start = prefix.or(Some(String::from(""))).unwrap();
     let take = params.limit.or(Some(100)).unwrap() as usize;
-    debug!("Using range start '{}' take={} with_vals={}", range_start, take, with_vals);
-    for (key, item) in kv
-        .range(range_start..)
-        .take(take)
-    {
+    debug!(
+        "Using range start '{}' take={} with_vals={}",
+        range_start, take, with_vals
+    );
+    for (key, item) in kv.range(range_start..).take(take) {
+        // Add the key
         if with_vals {
-            items.push(format!(
-                "{}:{}",
-                key,
-                BASE64_STANDARD.encode(item.data.clone())
-            ));
-            continue;
+            items.extend(key.as_bytes());
+            items.extend("\n".as_bytes());
+            items.extend(item.data.clone());
+            items.extend("\n".as_bytes());
+            items.extend("\n".as_bytes());
+        } else {
+            items.extend(key.as_bytes());
+            items.extend("\n".as_bytes());
         }
-        items.push(key.clone());
     }
 
-    Ok(items.join("\n").into_response())
+    let sep = match with_vals {
+        true => "\n\n",
+        false => "\n",
+    }
+    .as_bytes();
+
+    Ok(items[0..items.len() - sep.len()].to_vec().into_response())
 }
