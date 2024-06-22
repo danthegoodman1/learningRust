@@ -19,6 +19,8 @@ pub struct GetOrListParams {
     limit: Option<i64>,
     #[serde(default, alias = "nx")]
     with_vals: Option<String>,
+    start: Option<i64>,
+    end: Option<i64>
 }
 
 #[tracing::instrument(level = "debug", skip(state))]
@@ -74,10 +76,18 @@ async fn get(
     let kv = state.kv.read().await;
     debug!("Map: {:?}", kv);
     if let Some(val) = kv.get(key) {
+        let mut body = val.data.clone();
+        if params.start.is_some() || params.end.is_some() {
+            // We need to get a subslice of the body
+            let start = params.start.or(Some(0)).unwrap() as usize;
+            let end = params.end.or(Some(body.len() as i64)).unwrap() as usize;
+            body = body[start..end].to_vec();
+        }
+
         Ok(Response::builder()
             .status(StatusCode::OK)
             .header("version", HeaderValue::from(val.timestamp))
-            .body(val.data.clone().into())
+            .body(body.into())
             .expect("Failed to construct response"))
     } else {
         Err(anyhow!("not found").into())
