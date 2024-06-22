@@ -1,0 +1,52 @@
+use std::{collections::HashMap, sync::Arc};
+
+use axum::{
+    body::Bytes, http::StatusCode, response::{IntoResponse, Response}, routing::{get, post}
+};
+
+mod routes;
+
+#[derive(Clone, Debug)]
+struct AppState {
+    kv: Arc<HashMap<String, Bytes>>
+}
+
+pub async fn start(addr: &str) {
+    let state = AppState{
+        kv: Arc::new(HashMap::new())
+    };
+    let app = axum::Router::new()
+    .route("/", get(routes::get::get_root))
+    .route("/:key", get(routes::get::get_key))
+    .with_state(state);
+
+    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+
+    println!("Starting on {}", addr);
+    axum::serve(listener, app).await.unwrap();
+}
+
+// Make our own error that wraps `anyhow::Error`.
+pub struct AppError(anyhow::Error);
+
+// Tell axum how to convert `AppError` into a response.
+impl IntoResponse for AppError {
+    fn into_response(self) -> Response {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Something went wrong: {}", self.0),
+        )
+            .into_response()
+    }
+}
+
+// This enables using `?` on functions that return `Result<_, anyhow::Error>` to turn them into
+// `Result<_, AppError>`. That way you don't need to do that manually.
+impl<E> From<E> for AppError
+where
+    E: Into<anyhow::Error>,
+{
+    fn from(err: E) -> Self {
+        Self(err.into())
+    }
+}
