@@ -1,5 +1,3 @@
-use std::collections::BTreeMap;
-
 use crate::{AppError, AppState};
 use axum::{
     extract::{Path, Query, State},
