@@ -1,24 +1,33 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::BTreeMap, sync::Arc};
 
 use axum::{
-    body::Bytes, http::StatusCode, response::{IntoResponse, Response}, routing::{get, post}
+    body::Bytes, extract::DefaultBodyLimit, http::StatusCode, response::{IntoResponse, Response}, routing::{get, post}
 };
 
 mod routes;
 
 #[derive(Clone, Debug)]
 struct AppState {
-    kv: Arc<HashMap<String, Bytes>>
+    kv: Arc<BTreeMap<String, Bytes>>,
+}
+
+struct Item {
+    timestamp: i64,
+    data: [u8],
 }
 
 pub async fn start(addr: &str) {
-    let state = AppState{
-        kv: Arc::new(HashMap::new())
+    let state = AppState {
+        kv: Arc::new(BTreeMap::new()),
     };
     let app = axum::Router::new()
-    .route("/", get(routes::get::get_root))
-    .route("/:key", get(routes::get::get_key))
-    .with_state(state);
+        .route("/", get(routes::get::get_root))
+        .route(
+            "/:key",
+            get(routes::get::get_key).post(routes::post::write_key),
+        )
+        .with_state(state)
+        .layer(DefaultBodyLimit::max(99_000));
 
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
 
@@ -27,16 +36,28 @@ pub async fn start(addr: &str) {
 }
 
 // Make our own error that wraps `anyhow::Error`.
-pub struct AppError(anyhow::Error);
+pub enum AppError {
+    Anyhow(anyhow::Error),
+    CustomCode(anyhow::Error, axum::http::StatusCode),
+}
 
 // Tell axum how to convert `AppError` into a response.
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Something went wrong: {}", self.0),
-        )
-            .into_response()
+        match self {
+            AppError::Anyhow(e) => {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Something went wrong: {}", e),
+                )
+            },
+            AppError::CustomCode(e, code) => {
+                (
+                    code,
+                    format!("{}", e),
+                )
+            },
+        }.into_response()
     }
 }
 
@@ -47,6 +68,6 @@ where
     E: Into<anyhow::Error>,
 {
     fn from(err: E) -> Self {
-        Self(err.into())
+        Self::Anyhow(err.into())
     }
 }
