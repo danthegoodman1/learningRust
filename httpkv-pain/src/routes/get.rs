@@ -17,7 +17,7 @@ pub struct GetOrListParams {
 
     // List params
     limit: Option<i64>,
-    #[serde(default, alias = "nx")]
+    #[serde(default, alias = "vals")]
     with_vals: Option<String>,
     start: Option<i64>,
     end: Option<i64>
