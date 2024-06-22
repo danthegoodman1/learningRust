@@ -103,11 +103,17 @@ async fn list_items(
     let with_vals = params.with_vals.is_some();
 
     // Build the list of items
-    let range_start = prefix.or(Some(String::from(""))).unwrap();
+    let range_start = prefix.clone().or(Some(String::from(""))).unwrap(); // "" is beginning of DB
+    let range_end = match prefix {
+        Some(p) => p.as_bytes().to_owned(),
+        None => vec![0xFF], // 0xFF is end of DB
+    };
+    let range_end_str = String::from_utf8(range_end).unwrap();
     let reverse = params.reverse.is_some();
     let limit = params.limit.or(Some(100)).unwrap() as usize;
     debug!(
         start = range_start,
+        end = range_end_str,
         limit = limit,
         with_vals = with_vals,
         reverse = reverse,
@@ -140,13 +146,11 @@ async fn list_items(
                 match last_item {
                     Some(item) => {
                         kv.range(..item.0.to_owned() + "~").rev() // temp for the map, just add something larger on the end, fdb client has just options for the range iterator https://docs.rs/foundationdb/latest/foundationdb/struct.RangeOption.html
-                    },
+                    }
                     None => kv.range(.."".to_string()).rev(),
                 }
-            },
-            _ => {
-                kv.range(..range_start).rev()
-            },
+            }
+            _ => kv.range(..range_start).rev(),
         };
         for (key, item) in rev_range.take(limit) {
             // Add the key
