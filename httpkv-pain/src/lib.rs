@@ -7,6 +7,7 @@ use axum::{
     routing::get,
 };
 use tokio::sync::RwLock;
+use tracing::info;
 
 mod routes;
 
@@ -36,7 +37,7 @@ pub async fn start(addr: &str) {
 
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
 
-    println!("Starting on {}", addr);
+    info!("Starting on {}", addr);
     axum::serve(listener, app).await.unwrap();
 }
 

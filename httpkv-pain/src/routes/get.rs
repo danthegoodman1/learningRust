@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use crate::{AppError, AppState};
 use axum::{
     extract::{Path, Query, State},
@@ -7,7 +9,7 @@ use axum::{
 // use axum_extra::extract::Query;
 use anyhow::anyhow;
 use serde::Deserialize;
-use tracing::debug;
+use tracing::{debug, debug_span, event};
 use validator::Validate;
 
 #[derive(Deserialize, Debug, Validate)]
@@ -18,6 +20,7 @@ pub struct GetOrListParams {
     limit: Option<i64>,
     #[serde(default, alias = "vals")]
     with_vals: Option<String>,
+    reverse: Option<String>,
     start: Option<i64>,
     end: Option<i64>,
 }
@@ -37,12 +40,12 @@ pub async fn get_key(
     get_or_list_prefix(state, Some(key_prefix), &params).await
 }
 
+#[tracing::instrument(level = "debug", skip(state))]
 pub async fn get_or_list_prefix(
     state: AppState,
     key_prefix: Option<String>,
     params: &GetOrListParams,
 ) -> Result<Response, AppError> {
-    tracing::debug!("Got key: {:?} {:?}", key_prefix, params);
     params.validate()?;
 
     // Check if we are a list
@@ -61,14 +64,13 @@ pub async fn get_or_list_prefix(
     }
 }
 
-#[tracing::instrument(level = "debug")]
+#[tracing::instrument(level = "debug", skip(state))]
 async fn get_item(
     state: AppState,
     params: &GetOrListParams,
     key: &String,
 ) -> Result<Response, AppError> {
     let kv = state.kv.read().await;
-    debug!("Map: {:?}", kv);
     if let Some(val) = kv.get(key) {
         let mut body = val.data.clone();
         if params.start.is_some() || params.end.is_some() {
@@ -104,30 +106,74 @@ async fn list_items(
 
     // Build the list of items
     let range_start = prefix.or(Some(String::from(""))).unwrap();
-    let take = params.limit.or(Some(100)).unwrap() as usize;
+    let reverse = params.reverse.is_some();
+    let limit = params.limit.or(Some(100)).unwrap() as usize;
     debug!(
-        "Using range start '{}' take={} with_vals={}",
-        range_start, take, with_vals
+        start = range_start,
+        limit = limit,
+        with_vals = with_vals,
+        reverse = reverse,
+        "Listing items",
     );
-    for (key, item) in kv.range(range_start..).take(take) {
-        // Add the key
-        if with_vals {
-            items.extend(key.as_bytes());
-            items.extend("\n".as_bytes());
-            items.extend(item.data.clone());
-            items.extend("\n".as_bytes());
-            items.extend("\n".as_bytes());
-        } else {
-            items.extend(key.as_bytes());
-            items.extend("\n".as_bytes());
+
+    // Sometimes rust is a PITA and you just repeat yourself instead
+    if !reverse {
+        // Forward iterate
+        for (key, item) in kv.range(range_start..).take(limit) {
+            // Add the key
+            if with_vals {
+                items.extend(key.as_bytes());
+                items.extend("\n".as_bytes());
+                items.extend(item.data.clone());
+                items.extend("\n".as_bytes());
+                items.extend("\n".as_bytes());
+            } else {
+                items.extend(key.as_bytes());
+                items.extend("\n".as_bytes());
+            }
+        }
+    } else {
+        // Reverse iterate
+
+        // If we have a prefix, use it
+        let rev_range = match range_start.as_str() {
+            "" => {
+                let last_item = kv.last_key_value();
+                match last_item {
+                    Some(item) => {
+                        kv.range(..item.0.to_owned() + "~").rev() // temp for the map, just add something larger on the end
+                    },
+                    None => kv.range(.."".to_string()).rev(),
+                }
+            },
+            _ => {
+                kv.range(..range_start).rev()
+            },
+        };
+        for (key, item) in rev_range.take(limit) {
+            // Add the key
+            if with_vals {
+                items.extend(key.as_bytes());
+                items.extend("\n".as_bytes());
+                items.extend(item.data.clone());
+                items.extend("\n".as_bytes());
+                items.extend("\n".as_bytes());
+            } else {
+                items.extend(key.as_bytes());
+                items.extend("\n".as_bytes());
+            }
         }
     }
 
-    let sep = match with_vals {
-        true => "\n\n",
-        false => "\n",
+    let mut sep_len = 0;
+    if items.len() > 0 {
+        let sep = match with_vals {
+            true => "\n\n",
+            false => "\n",
+        }
+        .as_bytes();
+        sep_len = sep.len();
     }
-    .as_bytes();
 
-    Ok(items[0..items.len() - sep.len()].to_vec().into_response())
+    Ok(items[0..items.len() - sep_len].to_vec().into_response())
 }
