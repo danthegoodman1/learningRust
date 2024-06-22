@@ -1,20 +1,27 @@
 use crate::{AppError, AppState};
 use axum::{
-    body::Bytes, extract::{Path, Query, State}, http::{HeaderMap, HeaderValue, StatusCode}, response::{IntoResponse, Response}
+    extract::{Path, Query, State},
+    http::{HeaderValue, StatusCode},
+    response::{IntoResponse, Response},
 };
+use base64::prelude::*;
 // use axum_extra::extract::Query;
 use anyhow::anyhow;
 use serde::Deserialize;
-use tracing_subscriber::fmt::format;
+use tracing::{debug, info};
 use validator::Validate;
-use tracing::{info, debug};
 
 #[derive(Deserialize, Debug, Validate)]
 pub struct GetOrListParams {
     list: Option<String>,
+
+    // List params
+    limit: Option<i64>,
+    #[serde(default, alias = "nx")]
+    with_vals: Option<String>,
 }
 
-#[tracing::instrument(level="debug", skip(state))]
+#[tracing::instrument(level = "debug", skip(state))]
 pub async fn get_root(
     State(state): State<AppState>,
     Query(params): Query<GetOrListParams>,
@@ -22,7 +29,7 @@ pub async fn get_root(
     get_or_list_prefix(state, None, &params).await
 }
 
-#[tracing::instrument(level="debug", skip(state))]
+#[tracing::instrument(level = "debug", skip(state))]
 pub async fn get_key(
     State(state): State<AppState>,
     Path(key_prefix): Path<String>,
@@ -31,7 +38,7 @@ pub async fn get_key(
     get_or_list_prefix(state, Some(key_prefix), &params).await
 }
 
-#[tracing::instrument(level="debug", skip(state))]
+#[tracing::instrument(level = "debug", skip(state))]
 pub async fn get_or_list_prefix(
     state: AppState,
     key_prefix: Option<String>,
@@ -58,26 +65,53 @@ pub async fn get_or_list_prefix(
     }
 }
 
-#[tracing::instrument(level="debug")]
-async fn get(state: AppState, params: &GetOrListParams, key: &String) -> Result<Response, AppError> {
+#[tracing::instrument(level = "debug")]
+async fn get(
+    state: AppState,
+    params: &GetOrListParams,
+    key: &String,
+) -> Result<Response, AppError> {
     let kv = state.kv.read().await;
     debug!("Map: {:?}", kv);
     if let Some(val) = kv.get(key) {
         Ok(Response::builder()
-        .status(StatusCode::OK)
-        .header("version", HeaderValue::from(val.timestamp))
-        .body(val.data.clone().into())
-        .expect("Failed to construct response"))
+            .status(StatusCode::OK)
+            .header("version", HeaderValue::from(val.timestamp))
+            .body(val.data.clone().into())
+            .expect("Failed to construct response"))
     } else {
         Err(anyhow!("not found").into())
     }
 }
 
-#[tracing::instrument(level="debug", skip(state))]
+#[tracing::instrument(level = "debug", skip(state))]
 async fn listget(
     state: AppState,
     params: &GetOrListParams,
     prefix: Option<String>,
 ) -> Result<Response, AppError> {
-    todo!()
+    let mut items: Vec<String> = Vec::new();
+    let kv = state.kv.read().await;
+    let with_vals = params.with_vals.is_some();
+
+    // Build the list of items
+    let range_start = prefix.or(Some(String::from(""))).unwrap();
+    let take = params.limit.or(Some(100)).unwrap() as usize;
+    debug!("Using range start '{}' with take {}", range_start, take);
+    for (key, item) in kv
+        .range(range_start..)
+        .take(take)
+    {
+        if with_vals {
+            items.push(format!(
+                "{}:{}",
+                key,
+                BASE64_STANDARD.encode(item.data.clone())
+            ));
+            continue;
+        }
+        items.push(key.clone());
+    }
+
+    Ok(items.join("\n").into_response())
 }
