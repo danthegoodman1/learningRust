@@ -88,7 +88,7 @@ async fn get_item(
             .body(body.into())
             .expect("Failed to construct response"))
     } else {
-        Err(anyhow!("not found").into())
+        Err(AppError::CustomCode(anyhow!("not found"), StatusCode::NOT_FOUND))
     }
 }
 
