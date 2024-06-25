@@ -127,7 +127,7 @@ async fn list_items(
             // Add the key
             if with_vals {
                 items.extend(key.as_bytes());
-                items.extend("\n".as_bytes());
+                items.extend(b"\n");
                 items.extend(item.data.clone());
                 items.extend("\n".as_bytes());
                 items.extend("\n".as_bytes());

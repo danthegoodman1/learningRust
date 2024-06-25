@@ -2,7 +2,7 @@ use std::{ffi::c_void, ptr};
 
 use rusqlite::{params_from_iter, types::ValueRef, Connection, ToSql};
 use serde_json::{json, Map, Value};
-use v8::HeapStatistics;
+use v8::{HeapStatistics, PropertyFilter};
 
 fn main() {
     // Initialize V8.
@@ -14,7 +14,8 @@ fn main() {
         let mb = 1 << 20;
 
         // Create a new Isolate and make it the current one.
-        let mut isolate = &mut v8::Isolate::new(v8::CreateParams::default().heap_limits(mb, 10 * mb));
+        let mut isolate =
+            &mut v8::Isolate::new(v8::CreateParams::default().heap_limits(mb, 10 * mb));
 
         extern "C" fn oom_handler(_: *const std::os::raw::c_char, _: &v8::OomDetails) {
             panic!("OOM!")
@@ -28,10 +29,14 @@ fn main() {
         ) -> usize {
             // let state = unsafe { &mut *(data as *mut TestHeapLimitState) };
             // state.near_heap_limit_callback_calls += 1;
-            let isolate = unsafe {&mut *(data as *mut v8::Isolate)};
+            let isolate = unsafe { &mut *(data as *mut v8::Isolate) };
             let mut stats = <HeapStatistics as std::default::Default>::default();
             isolate.get_heap_statistics(&mut stats);
-            println!("used heap size: {}, total heap size: {}", stats.used_heap_size(), stats.total_heap_size());
+            println!(
+                "used heap size: {}, total heap size: {}",
+                stats.used_heap_size(),
+                stats.total_heap_size()
+            );
             let terminated = isolate.terminate_execution();
             println!("near limit! {:?}", terminated);
             // murder the isolate
@@ -299,6 +304,24 @@ fn main() {
 
         let class_constructor = v8::Local::<v8::Function>::try_from(class_value).unwrap();
 
+        // Get the prototype of the class
+        let proto_key = v8::String::new(&mut scope, "prototype").unwrap().into();
+        let prototype = class_constructor
+            .get(&mut scope, proto_key)
+            .unwrap();
+        let prototype_object = v8::Local::<v8::Object>::try_from(prototype).unwrap();
+
+        // Get the property names of the prototype object
+        let property_names = prototype_object.get_own_property_names(&mut scope, v8::GetPropertyNamesArgs { mode: v8::KeyCollectionMode::IncludePrototypes, property_filter: PropertyFilter::ALL_PROPERTIES, index_filter: v8::IndexFilter::IncludeIndices, key_conversion: v8::KeyConversionMode::ConvertToString }).unwrap();
+
+        println!("Instance methods:");
+        for i in 0..property_names.length() {
+            let key = property_names.get_index(&mut scope, i).unwrap();
+            let key_str = key.to_string(&mut scope).unwrap();
+            println!(" - {}", key_str.to_rust_string_lossy(&mut scope));
+        }
+
+
         // Create an instance of MyClass.
         let instance = class_constructor.new_instance(&mut scope, &[]).unwrap();
 
@@ -323,7 +346,11 @@ fn main() {
                 result
             }
             None => {
-                println!("Has caught: {}, can continue: {}", scope.has_caught(), scope.can_continue());
+                println!(
+                    "Has caught: {}, can continue: {}",
+                    scope.has_caught(),
+                    scope.can_continue()
+                );
                 panic!("exiting now")
             }
         };
