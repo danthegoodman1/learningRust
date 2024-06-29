@@ -266,6 +266,7 @@ fn main() {
         // Create a string containing the JavaScript source code for MyClass.
         let c_source = r#"
             class MyClass {
+                i = 1
                 multiply(a, b) {
                     let z = []
                     // Comment this in to OOM
@@ -321,9 +322,18 @@ fn main() {
             println!(" - {}", key_str.to_rust_string_lossy(&mut scope));
         }
 
-
         // Create an instance of MyClass.
         let instance = class_constructor.new_instance(&mut scope, &[]).unwrap();
+
+        // List the properties of the instance (internal vars)
+        let property_names = instance.get_own_property_names(&mut scope, v8::GetPropertyNamesArgs { mode: v8::KeyCollectionMode::IncludePrototypes, property_filter: PropertyFilter::ALL_PROPERTIES, index_filter: v8::IndexFilter::IncludeIndices, key_conversion: v8::KeyConversionMode::ConvertToString }).unwrap();
+
+        println!("Instance properties:");
+        for i in 0..property_names.length() {
+            let key = property_names.get_index(&mut scope, i).unwrap();
+            let key_str = key.to_string(&mut scope).unwrap();
+            println!(" - {}", key_str.to_rust_string_lossy(&mut scope));
+        }
 
         // Get the multiply method from the instance.
         let multiply_key = v8::String::new(&mut scope, "multiply").unwrap();
