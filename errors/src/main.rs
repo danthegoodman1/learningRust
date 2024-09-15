@@ -1,8 +1,10 @@
+pub mod chain;
 pub mod other;
 
 use std::fs::File;
 use std::io::{self, ErrorKind, Read};
 
+use chain::{operation_a, operation_root, CustomErrorA, CustomErrorB, CustomErrorC};
 use other::{custom_top, top_level};
 
 fn read_username_from_file() -> Result<String, io::Error> {
@@ -41,9 +43,16 @@ fn main() {
             // Check the error type
             match e.downcast_ref() {
                 Some(ErrorKind::NotFound) => {
-                    println!("it was not found:\n{}", e.chain().enumerate().map(|(index, cause)| format!("\t{}: {}", index, cause.to_string())).collect::<Vec<String>>().join("\n"));
+                    println!(
+                        "it was not found:\n{}",
+                        e.chain()
+                            .enumerate()
+                            .map(|(index, cause)| format!("\t{}: {}", index, cause.to_string()))
+                            .collect::<Vec<String>>()
+                            .join("\n")
+                    );
                     // println!("it was not found: {}", e);
-                },
+                }
                 Some(&_) => {
                     // tf is this?
                 }
@@ -51,17 +60,49 @@ fn main() {
                     println!("it was something else!")
                 }
             }
-        },
+        }
         _other => (),
     }
 
     println!("_____________");
-    
+
     match custom_top() {
         Err(e) => {
             // println!("got error: {:?}", e);
-            println!("got the error:\n{}", e.chain().enumerate().map(|(index, cause)| format!("\t{}: {}", index, cause.to_string())).collect::<Vec<String>>().join("\n"));
-        },
+            println!(
+                "got the error:\n{}",
+                e.chain()
+                    .enumerate()
+                    .map(|(index, cause)| format!("\t{}: {}", index, cause.to_string()))
+                    .collect::<Vec<String>>()
+                    .join("\n")
+            );
+        }
         _other => (),
+    }
+
+    let result = operation_root();
+
+    if let Err(err) = result {
+        println!(
+            "Err chain on operation_root:\n{}",
+            err.chain()
+                .enumerate()
+                .map(|(index, cause)| format!("\t{}: {}", index, cause.to_string()))
+                .collect::<Vec<String>>()
+                .join("\n")
+        );
+        if err.downcast_ref::<CustomErrorA>().is_some() {
+            println!("Error chain contains CustomErrorA");
+        }
+        if err.downcast_ref::<CustomErrorB>().is_some() {
+            println!("Error chain contains CustomErrorB");
+        }
+        if err.downcast_ref::<CustomErrorC>().is_some() {
+            println!("Error chain contains CustomErrorC");
+        }
+
+        // You can also print the full error chain
+        println!("Full error chain: {:#}", err);
     }
 }

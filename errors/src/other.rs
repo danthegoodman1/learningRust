@@ -40,13 +40,13 @@ impl CustomError {
 // }
 
 pub fn bottom_level() -> Result<()> {
-    Err(anyhow!(ErrorKind::NotFound)).context("bottom level context")
+    Err(anyhow!(ErrorKind::NotFound).context("bottom level context")) // can put inside
 }
 
 pub fn top_level() -> Result<()> {
     return match bottom_level() {
         Ok(_) => Ok(()),
-        Err(err) => Err(anyhow!(err)).context("top level context"),
+        Err(err) => Err(anyhow!(err)).context("top level context"), // or outside
     };
 }
 
