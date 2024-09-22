@@ -25,15 +25,15 @@ pub fn operation_c() -> Result<()> {
 }
 
 pub fn operation_b() -> Result<()> {
-    operation_c().context(CustomErrorB::ErrorB("Error in B".to_string())).context("some more info on b")
+    operation_c().context(CustomErrorB::ErrorB("Error in B".to_string())).context(format!("some more info on b on {}:{}", file!(), line!()))
 }
 
 pub fn operation_a() -> Result<()> {
-    operation_b().context(CustomErrorA::ErrorA("Error in A".to_string()))?; // can use
+    operation_b().context(CustomErrorA::ErrorA("Error in A".to_string())).context(format!("error calling operation_b {}:{}", file!(), line!()))?; // can use ?
     Ok(())
 }
 
 pub fn operation_root() -> Result<()> {
-    operation_a().context("failed to call operation a")?;
+    operation_a().context(format!("failed to call operation a {}:{}", file!(), line!()))?;
     Ok(())
 }

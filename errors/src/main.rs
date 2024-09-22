@@ -84,14 +84,16 @@ fn main() {
     let result = operation_root();
 
     if let Err(err) = result {
-        println!(
-            "Err chain on operation_root:\n{}",
-            err.chain()
-                .enumerate()
-                .map(|(index, cause)| format!("\t{}: {}", index, cause.to_string()))
-                .collect::<Vec<String>>()
-                .join("\n")
-        );
+        // println!(
+        //     "Err chain on operation_root:\n{}",
+        //     err.chain()
+        //         .enumerate()
+        //         .map(|(index, cause)| format!("\t{}: {}", index, cause.to_string()))
+        //         .collect::<Vec<String>>()
+        //         .join("\n")
+        // );
+        eprintln!("Err chain on operation_root: {:?}", err);
+
         if err.downcast_ref::<CustomErrorA>().is_some() {
             println!("Error chain contains CustomErrorA");
         }
@@ -103,6 +105,8 @@ fn main() {
         }
 
         // You can also print the full error chain
-        println!("Full error chain: {:#}", err);
+        eprintln!("Full error chain: {:#}", err);
     }
+
+    // check out https://docs.rs/color-eyre/latest/color_eyre/ too for better span traces (would need to disable the parameter printing)
 }

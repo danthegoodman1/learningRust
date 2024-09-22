@@ -40,7 +40,7 @@ impl CustomError {
 // }
 
 pub fn bottom_level() -> Result<()> {
-    Err(anyhow!(ErrorKind::NotFound).context("bottom level context")) // can put inside
+    Err(anyhow!(ErrorKind::NotFound).context(format!("bottom level context on {}:{}", file!(), line!()))) // can put inside
 }
 
 pub fn top_level() -> Result<()> {
