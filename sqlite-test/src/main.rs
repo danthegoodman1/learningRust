@@ -1,3 +1,7 @@
+/**
+ * See https://sqlite.org/draft/security.html for some other limits for handling arbitrary untrusted queries
+ */
+
 use std::ffi::c_int;
 
 use rusqlite::ffi::{sqlite3_config, sqlite3_int64, sqlite3_memory_used, sqlite3_soft_heap_limit64, SQLITE_CONFIG_MEMSTATUS, SQLITE_STATUS_MEMORY_USED};
