@@ -9,14 +9,6 @@ fn sum_as_string(a: usize, b: usize) -> PyResult<String> {
     Ok((a + b).to_string())
 }
 
-/// A Python module implemented in Rust.
-#[pymodule]
-fn dan(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    m.add_function(wrap_pyfunction!(sum_as_string, m)?)?;
-    m.add_function(wrap_pyfunction!(double_arr, m)?)?;
-    Ok(())
-}
-
 #[pyfunction]
 fn double_arr(arr: PyArrowType<ArrayData>) -> PyResult<PyArrowType<ArrayData>> {
     let arr = arr.0; // get from the pyarrow type wrapper
@@ -46,4 +38,13 @@ fn double_arr(arr: PyArrowType<ArrayData>) -> PyResult<PyArrowType<ArrayData>> {
 
     // Wrap the result in PyArrowType and return
     Ok(PyArrowType(doubled_data))
+}
+
+
+/// A Python module implemented in Rust.
+#[pymodule]
+fn dan(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_function(wrap_pyfunction!(sum_as_string, m)?)?;
+    m.add_function(wrap_pyfunction!(double_arr, m)?)?;
+    Ok(())
 }

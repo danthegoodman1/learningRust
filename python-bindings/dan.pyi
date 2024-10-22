@@ -1,4 +1,6 @@
-import pyarrow
-def sum_as_string(a: int, b: int): str
+import pyarrow.lib as palib
+from typing import Union
 
-# def double_arr(pa.typing.): pa.array
+def sum_as_string(a: int, b: int) -> str: ...
+
+def double_arr(arr: Union[palib.Array, palib.ChunkedArray]) -> Union[palib.Array, palib.ChunkedArray]: ...
