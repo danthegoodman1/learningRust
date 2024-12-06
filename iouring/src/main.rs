@@ -1,10 +1,10 @@
-use aligned_vec::AVec;
 use io_uring::{IoUring, Probe, Register};
 use std::fs::OpenOptions;
 use std::os::unix::fs::OpenOptionsExt;
 use std::os::unix::io::AsRawFd;
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use std::alloc::{alloc, dealloc, Layout};
 
 const BLOCK_SIZE: usize = 4096; // Typical block size, adjust as needed
 
@@ -30,15 +30,15 @@ impl NvmeDevice {
 
     // Read a block at the specified offset
     pub async fn read_block(&mut self, offset: u64) -> std::io::Result<Vec<u8>> {
-        // Create an aligned vector
-        let mut buffer = AVec::<u8>::with_capacity(BLOCK_SIZE, BLOCK_SIZE);
-        buffer.resize(BLOCK_SIZE, 0);
+        // Create an aligned buffer using std::alloc
+        let layout = Layout::from_size_align(BLOCK_SIZE, BLOCK_SIZE).unwrap();
+        let buffer = unsafe { alloc(layout) };
 
         // Prepare read operation
         let read_e = self.ring.read(
             self.fd.as_raw_fd(),
-            buffer.as_mut_ptr(),
-            buffer.len() as u32,
+            buffer,
+            BLOCK_SIZE as u32,
             offset,
         )?;
 
@@ -51,27 +51,31 @@ impl NvmeDevice {
         let cqe = self.ring.completion().next().expect("No completion")?;
 
         if cqe.result() < 0 {
+            unsafe { dealloc(buffer, layout) };
             return Err(std::io::Error::from_raw_os_error(-cqe.result()));
         }
 
         // Convert to regular Vec before returning
-        Ok(buffer.to_vec())
+        let result = unsafe { Vec::from_raw_parts(buffer, BLOCK_SIZE, BLOCK_SIZE) };
+        Ok(result)
     }
 
     // Write a block at the specified offset
     pub async fn write_block(&mut self, offset: u64, data: &[u8]) -> std::io::Result<()> {
         assert!(data.len() <= BLOCK_SIZE, "Data exceeds block size");
 
-        // Create an aligned vector
-        let mut buffer = AVec::<u8>::with_capacity(BLOCK_SIZE, BLOCK_SIZE);
-        buffer.resize(BLOCK_SIZE, 0);
-        buffer[..data.len()].copy_from_slice(data);
+        // Create an aligned buffer using std::alloc
+        let layout = Layout::from_size_align(BLOCK_SIZE, BLOCK_SIZE).unwrap();
+        let buffer = unsafe { alloc(layout) };
+        unsafe {
+            std::ptr::copy_nonoverlapping(data.as_ptr(), buffer, data.len());
+        }
 
         // Prepare write operation
         let write_e = self.ring.write(
             self.fd.as_raw_fd(),
-            buffer.as_ptr(),
-            buffer.len() as u32,
+            buffer,
+            BLOCK_SIZE as u32,
             offset,
         )?;
 
@@ -84,8 +88,12 @@ impl NvmeDevice {
         let cqe = self.ring.completion().next().expect("No completion")?;
 
         if cqe.result() < 0 {
+            unsafe { dealloc(buffer, layout) };
             return Err(std::io::Error::from_raw_os_error(-cqe.result()));
         }
+
+        // Deallocate the buffer
+        unsafe { dealloc(buffer, layout) };
 
         Ok(())
     }
