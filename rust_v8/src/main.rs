@@ -1,21 +1,25 @@
-use std::{ffi::c_void, ptr};
+use std::{ffi::c_void, ptr, time::Instant};
 
 use rusqlite::{params_from_iter, types::ValueRef, Connection, ToSql};
 use serde_json::{json, Map, Value};
 use v8::{HeapStatistics, PropertyFilter};
 
 fn main() {
+    let total_start = Instant::now();
+    
     // Initialize V8.
+    let v8_init_start = Instant::now();
     let platform = v8::new_default_platform(0, false).make_shared();
     v8::V8::initialize_platform(platform);
     v8::V8::initialize();
+    println!("V8 initialization took: {:?}", v8_init_start.elapsed());
 
     {
+        // Create isolate
+        let isolate_start = Instant::now();
         let mb = 1 << 20;
-
-        // Create a new Isolate and make it the current one.
-        let mut isolate =
-            &mut v8::Isolate::new(v8::CreateParams::default().heap_limits(mb, 10 * mb));
+        let mut isolate = &mut v8::Isolate::new(v8::CreateParams::default().heap_limits(mb, 10 * mb));
+        println!("Isolate creation took: {:?}", isolate_start.elapsed());
 
         extern "C" fn oom_handler(_: *const std::os::raw::c_char, _: &v8::OomDetails) {
             panic!("OOM!")
@@ -52,11 +56,11 @@ fn main() {
         let handle_scope = &mut v8::HandleScope::new(isolate);
 
         // Create a new context.
+        let context_start = Instant::now();
         let context = v8::Context::new(handle_scope);
-
-        // Enter the context for compiling and running scripts.
         let scope = &mut v8::ContextScope::new(handle_scope, context);
         let mut scope = v8::TryCatch::new(scope);
+        println!("Context creation took: {:?}", context_start.elapsed());
 
         // Define the `query` function in Rust.
         fn query(
@@ -266,7 +270,6 @@ fn main() {
         // Create a string containing the JavaScript source code for MyClass.
         let c_source = r#"
             class MyClass {
-                i = 1
                 multiply(a, b) {
                     let z = []
                     // Comment this in to OOM
@@ -285,15 +288,15 @@ fn main() {
             }
             this.MyClass = MyClass;"#;
 
+        // Compile and run MyClass
+        let compile_start = Instant::now();
         let source = v8::String::new(&mut scope, c_source).unwrap();
-
-        // Compile the source code.
         let script = v8::Script::compile(&mut scope, source, None).unwrap();
-
-        // Run the script to define the class.
         script.run(&mut scope).unwrap();
+        println!("Compiling and running MyClass took: {:?}", compile_start.elapsed());
 
-        // Get the MyClass constructor from the global object.
+        // Create instance and run multiply
+        let multiply_start = Instant::now();
         let global = context.global(&mut scope);
         let key = v8::String::new(&mut scope, "MyClass").unwrap();
         let class_value = global.get(&mut scope, key.into()).unwrap();
@@ -324,16 +327,6 @@ fn main() {
 
         // Create an instance of MyClass.
         let instance = class_constructor.new_instance(&mut scope, &[]).unwrap();
-
-        // List the properties of the instance (internal vars)
-        let property_names = instance.get_own_property_names(&mut scope, v8::GetPropertyNamesArgs { mode: v8::KeyCollectionMode::IncludePrototypes, property_filter: PropertyFilter::ALL_PROPERTIES, index_filter: v8::IndexFilter::IncludeIndices, key_conversion: v8::KeyConversionMode::ConvertToString }).unwrap();
-
-        println!("Instance properties:");
-        for i in 0..property_names.length() {
-            let key = property_names.get_index(&mut scope, i).unwrap();
-            let key_str = key.to_string(&mut scope).unwrap();
-            println!(" - {}", key_str.to_rust_string_lossy(&mut scope));
-        }
 
         // Get the multiply method from the instance.
         let multiply_key = v8::String::new(&mut scope, "multiply").unwrap();
@@ -368,8 +361,10 @@ fn main() {
         // Convert the result to a number.
         let result = result.to_number(&mut scope).unwrap();
         println!("3 * 4 = {}", result.value());
+        println!("Multiply execution took: {:?}", multiply_start.elapsed());
 
         // Test calling the query function from JavaScript.
+        let query_start = Instant::now();
         let test_query_key = v8::String::new(&mut scope, "testQuery").unwrap();
         let test_query_value = instance.get(&mut scope, test_query_key.into()).unwrap();
         let test_query_fn = v8::Local::<v8::Function>::try_from(test_query_value).unwrap();
@@ -417,9 +412,10 @@ fn main() {
             }
         }
 
-        // let result = result.to_number(scope).unwrap();
-        // println!("Query result length = {}", result.value());
+        println!("Query execution took: {:?}", query_start.elapsed());
     }
+
+    println!("Total execution time: {:?}", total_start.elapsed());
 
     // Explicit disposal of V8 platform is not necessary.
 }
