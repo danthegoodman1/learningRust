@@ -67,6 +67,7 @@ impl Drop for NvmeDevice {
                 }
             });
         });
+        // Or use wait_for_destruction and let this happen async (if still need blocking, otherwise just spawn close)
     }
 }
 
