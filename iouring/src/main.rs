@@ -26,12 +26,8 @@ impl NvmeDevice {
      * Returns a tuple containing the read data and the number of bytes read.
      */
     pub async fn read_block(&mut self, offset: u64) -> std::io::Result<(Vec<u8>, usize)> {
-        // Allocate aligned buffer using Layout
-        let layout = Layout::from_size_align(BLOCK_SIZE, BLOCK_SIZE).unwrap();
-        let buffer = unsafe { alloc(layout) };
-
-        // Create a Vec from the aligned buffer
-        let vec = unsafe { Vec::from_raw_parts(buffer, BLOCK_SIZE, BLOCK_SIZE) };
+        // Create a vec with the correct capacity
+        let vec = vec![0; BLOCK_SIZE];
 
         // Perform the read operation
         let (res, vec) = self.fd.as_mut().unwrap().read_at(vec, offset).await;
@@ -40,9 +36,15 @@ impl NvmeDevice {
         Ok((vec, n))
     }
 
-    pub async fn write_block(&mut self, offset: u64, data: Vec<u8>) -> std::io::Result<()> {
-        assert!(data.len() <= BLOCK_SIZE, "Data exceeds block size");
-
+    /**
+     * Write a block to the device.
+     * It's assumed that the data is already aligned to the block size.
+     */
+    pub async fn write_block(
+        &mut self,
+        offset: u64,
+        data: [u8; BLOCK_SIZE],
+    ) -> std::io::Result<()> {
         let (res, _) = self
             .fd
             .as_mut()
