@@ -25,12 +25,12 @@ impl NvmeDevice {
      *
      * Returns a tuple containing the read data and the number of bytes read.
      */
-    pub async fn read_block(&mut self, offset: u64) -> std::io::Result<(Vec<u8>, usize)> {
+    pub async fn read_block(&mut self, offset: u64) -> std::io::Result<([u8; BLOCK_SIZE], usize)> {
         // Create a vec with the correct capacity
-        let vec = [0u8; BLOCK_SIZE];
+        let buf = [0u8; BLOCK_SIZE];
 
         // Perform the read operation
-        let (res, vec) = self.fd.as_mut().unwrap().read_at(vec, offset).await;
+        let (res, vec) = self.fd.as_mut().unwrap().read_at(buf, offset).await;
         let n = res?;
 
         Ok((vec, n))
