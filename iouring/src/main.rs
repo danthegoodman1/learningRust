@@ -8,6 +8,9 @@ struct NvmeDevice {
     fd: Option<File>,
 }
 
+#[repr(align(BLOCK_SIZE))]
+struct AlignedPage([u8; BLOCK_SIZE]);
+
 impl NvmeDevice {
     pub async fn new(device_path: &str) -> std::io::Result<Self> {
         let fd = OpenOptions::new()
@@ -25,9 +28,9 @@ impl NvmeDevice {
      *
      * Returns a tuple containing the read data and the number of bytes read.
      */
-    pub async fn read_block(&mut self, offset: u64) -> std::io::Result<([u8; BLOCK_SIZE], usize)> {
+    pub async fn read_block(&mut self, offset: u64) -> std::io::Result<(AlignedPage, usize)> {
         // Create a vec with the correct capacity
-        let buf = [0u8; BLOCK_SIZE];
+        let mut buf = AlignedPage([0u8; BLOCK_SIZE]);
 
         // Perform the read operation
         let (res, vec) = self.fd.as_mut().unwrap().read_at(buf, offset).await;
@@ -43,7 +46,7 @@ impl NvmeDevice {
     pub async fn write_block(
         &mut self,
         offset: u64,
-        data: [u8; BLOCK_SIZE],
+        data: AlignedPage,
     ) -> std::io::Result<()> {
         let (res, _) = self
             .fd
