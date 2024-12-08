@@ -27,7 +27,7 @@ impl NvmeDevice {
      */
     pub async fn read_block(&mut self, offset: u64) -> std::io::Result<(Vec<u8>, usize)> {
         // Create a vec with the correct capacity
-        let vec = vec![0; BLOCK_SIZE];
+        let vec = [0u8; BLOCK_SIZE];
 
         // Perform the read operation
         let (res, vec) = self.fd.as_mut().unwrap().read_at(vec, offset).await;
