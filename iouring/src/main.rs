@@ -1,5 +1,5 @@
-use std::alloc::{alloc, Layout};
 use std::os::unix::fs::OpenOptionsExt;
+use tokio_uring::buf::{IoBuf, IoBufMut};
 use tokio_uring::fs::{File, OpenOptions};
 
 const BLOCK_SIZE: usize = 4096; // Typical block size, adjust as needed
@@ -8,15 +8,40 @@ struct NvmeDevice {
     fd: Option<File>,
 }
 
-#[repr(align(BLOCK_SIZE))]
+#[repr(align(4096))]
 struct AlignedPage([u8; BLOCK_SIZE]);
+
+unsafe impl IoBuf for AlignedPage {
+    fn stable_ptr(&self) -> *const u8 {
+        self.0.as_ptr()
+    }
+
+    fn bytes_init(&self) -> usize {
+        BLOCK_SIZE
+    }
+
+    fn bytes_total(&self) -> usize {
+        BLOCK_SIZE
+    }
+}
+
+unsafe impl IoBufMut for AlignedPage {
+    fn stable_mut_ptr(&mut self) -> *mut u8 {
+        self.0.as_mut_ptr()
+    }
+
+    unsafe fn set_init(&mut self, pos: usize) {
+        debug_assert!(pos <= BLOCK_SIZE);
+    }
+}
 
 impl NvmeDevice {
     pub async fn new(device_path: &str) -> std::io::Result<Self> {
         let fd = OpenOptions::new()
             .read(true)
             .write(true)
-            .custom_flags(libc::O_DIRECT)
+            .create(true)
+            // .custom_flags(libc::O_DIRECT) // Direct IO is not supported with tokio-uring!
             .open(device_path)
             .await?;
 
@@ -28,26 +53,23 @@ impl NvmeDevice {
      *
      * Returns a tuple containing the read data and the number of bytes read.
      */
-    pub async fn read_block(&mut self, offset: u64) -> std::io::Result<(AlignedPage, usize)> {
+    pub async fn read_block(&mut self, offset: u64) -> std::io::Result<AlignedPage> {
         // Create a vec with the correct capacity
-        let mut buf = AlignedPage([0u8; BLOCK_SIZE]);
-
+        // let page = AlignedPage([0; BLOCK_SIZE]);
+        let page = vec![0; BLOCK_SIZE];
         // Perform the read operation
-        let (res, vec) = self.fd.as_mut().unwrap().read_at(buf, offset).await;
-        let n = res?;
+        let (res, page) = self.fd.as_mut().unwrap().read_exact_at(page, offset).await;
+        res?;
 
-        Ok((vec, n))
+        // Ok(page)
+        Ok(AlignedPage(page.try_into().unwrap()))
     }
 
     /**
      * Write a block to the device.
      * It's assumed that the data is already aligned to the block size.
      */
-    pub async fn write_block(
-        &mut self,
-        offset: u64,
-        data: AlignedPage,
-    ) -> std::io::Result<()> {
+    pub async fn write_block(&mut self, offset: u64, data: AlignedPage) -> std::io::Result<()> {
         let (res, _) = self
             .fd
             .as_mut()
@@ -64,31 +86,41 @@ impl NvmeDevice {
 // Could instead just make the caller responsible for closing the file
 impl Drop for NvmeDevice {
     fn drop(&mut self) {
-        tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(async {
-                if let Some(fd) = self.fd.take() {
-                    fd.close().await.unwrap();
-                    self.fd = None;
-                }
+        if let Some(fd) = self.fd.take() {
+            tokio_uring::spawn(async move {
+                fd.close().await.unwrap();
             });
-        });
-        // Or use wait_for_destruction and let this happen async (if still need blocking, otherwise just spawn close)
+        }
     }
 }
 
-#[tokio::main(flavor = "current_thread")]
-async fn main() -> std::io::Result<()> {
-    // Create a new device instance
-    let mut device = NvmeDevice::new("/dev/nvme0n1").await?;
+// #[tokio::main]
+fn main() -> Result<(), Box<dyn std::error::Error>>{
+    tokio_uring::start(async {
+        // Create a new device instance
+        let mut device = NvmeDevice::new("/tmp/test1").await.unwrap();
 
-    // Example: Read from offset 0
-    let (data, n) = device.read_block(0).await?;
-    println!("Read {} bytes", n);
+        // Example: Write to offset 0
+        let mut write_data = [0u8; BLOCK_SIZE]; // Create a zeroed array
+        let hello = b"Hello, world!\n"; // Convert string to bytes
+        write_data[..hello.len()].copy_from_slice(hello); // Copy string bytes to start of array
+        let write_page = AlignedPage(write_data); // Create aligned page
 
-    // Example: Write to offset 0
-    let write_data = vec![0u8; BLOCK_SIZE];
-    device.write_block(0, write_data).await?;
-    println!("Write completed");
+        // Add this debug print
+        println!("Writing bytes: {:?}", &write_page.0[..hello.len()]);
 
-    Ok(())
+        device.write_block(0, write_page).await.unwrap();
+        println!("Write completed");
+
+        // Example: Read from offset 0
+        let data = device.read_block(0).await.unwrap();
+        println!("Read {} bytes", data.0.len());
+
+        // Log the raw bytes
+        // println!("Raw bytes: {:?}", &data[..n]);
+        
+        println!("Message: {}", String::from_utf8_lossy(&data.0));
+
+        Ok(())
+    })
 }
