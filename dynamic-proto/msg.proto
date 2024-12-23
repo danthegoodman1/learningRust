@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+package your.package;
+
+message Location {
+    int32 lat = 1;
+    int32 long = 2;
+}
+
+message PersonLocation {
+    string name = 1;
+    int32 age = 2;
+    Location location = 3;
+}
