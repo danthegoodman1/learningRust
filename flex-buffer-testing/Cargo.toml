@@ -1,0 +1,9 @@
+[package]
+name = "flex-buffer-testing"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+flexbuffers = "24.12.23"
+serde = { version = "1.0.216", features = ["serde_derive"] }
+serde_json = "1.0.134"
