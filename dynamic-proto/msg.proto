@@ -12,3 +12,33 @@ message PersonLocation {
     int32 age = 2;
     Location location = 3;
 }
+
+message Color {
+    uint32 r = 1;
+    uint32 g = 2;
+    uint32 b = 3;
+    uint32 a = 4;
+}
+
+message Weapon {
+    oneof weapon_type {
+        bool fist = 1;  // Used to represent the Fist variant
+        Equipment equipment = 2;
+    }
+}
+
+message Equipment {
+    string name = 1;
+    int32 damage = 2;
+}
+
+message Monster {
+    uint32 hp = 1;
+    int32 mana = 2;
+    bool enraged = 3;
+    repeated Weapon weapons = 4;
+    Color color = 5;
+    repeated double position = 6;  // Will contain exactly 3 elements
+    repeated double velocity = 7;  // Will contain exactly 3 elements
+    repeated uint32 coins = 8;
+}

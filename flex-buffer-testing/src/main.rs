@@ -125,3 +125,12 @@ fn main() {
 // FlexBuffers deserialization: 51.25µs
 // JSON serialization: 3.584µs
 // JSON deserialization: 6.666µs
+
+// Related for protobuf (dynamic message):
+// Creating monster message...
+// Monster creation time: 10.917µs
+// Message size: 311 bytes
+// Encoding time: 13.375µs
+// Decoding time: 13.167µs
+// First coin value: 500
+// Coin access time: 1.583µs
