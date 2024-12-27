@@ -19,14 +19,18 @@ fn main() {
                 print_vec_vec_u8(&args);
                 let mut db = db.lock().unwrap();
                 db.insert(args[1].to_owned(), args[2].to_owned());
-                // conn.write_string("OK");
+
+                let start = std::time::Instant::now();
                 let parsed = parse_set_command(
                     &args[1..]
                         .into_iter()
                         .map(|v| String::from_utf8_lossy(&v).to_string())
                         .collect::<Vec<_>>(),
                 );
+                let duration = start.elapsed();
                 println!("parsed: {:?}", parsed);
+                println!("Parsing time: {:?}", duration);
+
                 conn.write_bulk("msg".as_bytes());
             }
             "get" => {
