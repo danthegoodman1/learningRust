@@ -11,6 +11,7 @@ pub enum RedisCommand {
     },
 }
 
+/// Could use the redis::SetOptions instead
 #[derive(Debug, Default)]
 pub struct SetOptions {
     nx: bool,                       // NX: Only set if the key does not exist
