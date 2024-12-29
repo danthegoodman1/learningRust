@@ -52,4 +52,10 @@ fn main() {
             _ => println!("Error: {}", e),
         },
     }
+
+    // Debug printing
+    match generic_error() {
+        Ok(_) => println!("Success"),
+        Err(e) => println!("Error: {:?}", e),
+    }
 }

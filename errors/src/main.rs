@@ -14,7 +14,18 @@ fn read_username_from_file() -> Result<String, io::Error> {
     Ok(username)
 }
 
+fn do_something_wrong() -> anyhow::Result<()> {
+    Err(anyhow::anyhow!("something went wrong").context("from do_something_wrong"))
+}
+
 fn main() {
+    match do_something_wrong() {
+        Ok(_) => (),
+        Err(e) => {
+            println!("got error: {:?}", e.root_cause());
+        }
+    }
+    println!("_____________");
     // let _ = read_username_from_file().unwrap_or_else(|err| {
     //     if err.kind() == ErrorKind::NotFound {
     //         println!("not found {:?}", err);
