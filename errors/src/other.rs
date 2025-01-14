@@ -5,7 +5,10 @@ use thiserror::Error;
 #[derive(Error, Debug)]
 pub enum OtherError {
     #[error("random other error")]
-    RandomOther(#[from] io::Error)
+    FromOther(#[from] io::Error),
+    // Seems like the from is not needed based on the match code in main
+    #[error("contain other error")]
+    ContainOther(io::Error)
 }
 
 #[derive(Error, Debug)]

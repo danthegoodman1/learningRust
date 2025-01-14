@@ -5,7 +5,7 @@ use std::fs::File;
 use std::io::{self, ErrorKind, Read};
 
 use chain::{operation_a, operation_root, CustomErrorA, CustomErrorB, CustomErrorC};
-use other::{custom_top, top_level};
+use other::{custom_top, top_level, OtherError};
 
 fn read_username_from_file() -> Result<String, io::Error> {
     let mut username_file = File::open("hello.txt")?;
@@ -117,6 +117,49 @@ fn main() {
 
         // You can also print the full error chain
         eprintln!("Full error chain: {:#}", err);
+    }
+
+    println!("_____________");
+
+    println!("Checking other err");
+    let err = OtherError::FromOther(io::Error::new(io::ErrorKind::NotFound, "not found"));
+    println!("err: {:?}", err);
+
+    match err {
+        OtherError::FromOther(e) => {
+            println!("Matched random other");
+            match e.kind() {
+                io::ErrorKind::NotFound => {
+                    println!("Matched not found")
+                }
+                _ => {
+                    println!("Matched something else")
+                }
+            }
+        },
+        _ => {
+            println!("Matched something else")
+        }
+    }
+
+    let err = OtherError::ContainOther(io::Error::new(io::ErrorKind::NotFound, "not found"));
+    println!("err: {:?}", err);
+
+    match err {
+        OtherError::ContainOther(e) => {
+            println!("Matched contain other");
+            match e.kind() {
+                io::ErrorKind::NotFound => {
+                    println!("Matched not found")
+                }
+                _ => {
+                    println!("Matched something else")
+                }
+            }
+        }
+        _ => {
+            println!("Matched something else")
+        }
     }
 
     // check out https://docs.rs/color-eyre/latest/color_eyre/ too for better span traces (would need to disable the parameter printing)
