@@ -1,0 +1,8 @@
+[package]
+name = "test-rdev"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+core-graphics = "0.24.0"
+rdev = "0.5.3"
