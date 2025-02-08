@@ -31,4 +31,16 @@ fn main() {
     let ast = Parser::parse_sql(&dialect, sql).unwrap();
 
     println!("AST: {ast:?}");
+    
+    let sql = r"
+    with blah as (select * from table_1)
+    select * from blah
+    where blah.a > (select max(a) from blah)
+    ";
+
+    let dialect = PostgreSqlDialect {};
+
+    let ast = Parser::parse_sql(&dialect, sql).unwrap();
+
+    println!("\n\nAST: {ast:?}");
 }
