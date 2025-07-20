@@ -1,0 +1,9 @@
+[package]
+name = "errors-simpler"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.98"
+thiserror = "2.0.12"
+function_name = "0.3"
